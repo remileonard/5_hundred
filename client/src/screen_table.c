@@ -948,12 +948,17 @@ void screen_table_handle_event(App *app, SDL_Event *e)
                 }
             }
             /* Hand card click: available when hand is the active/forced source OR
-             * on the first trick (free choice), OR in 4-player (always). */
-            if (gs->num_players != 2
-                || gs->two_player_hand_type == 0
-                || free_choice) {
+             * on the first trick (free choice), OR in 4-player (always).
+             * Exception: the Joker is always selectable from hand regardless of
+             * the forced source, because it is always legally playable. */
+            bool hand_free = (gs->num_players != 2
+                              || gs->two_player_hand_type == 0
+                              || free_choice);
+            {
                 int ci = hand_card_hit(gs, mx, my);
-                if (ci >= 0) {
+                if (ci >= 0
+                    && (hand_free
+                        || (int)p->hand[ci].rank == RANK_JOKER)) {
                     gs->selected_card = (gs->selected_card == ci) ? -1 : ci;
                     return;
                 }

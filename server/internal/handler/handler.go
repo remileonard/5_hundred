@@ -220,6 +220,12 @@ func (h *Handler) handleGamePlay(c *ws.Client, msg protocol.Msg) {
 		return
 	}
 	card := game.Card{Rank: game.Rank(p.Card.Rank), Suit: game.Suit(p.Card.Suit)}
+	// Normalize the Joker: the client encodes its suit as 4 (SUIT_NONE) but the
+	// server uses game.NoSuit (-1).  Rank alone identifies the Joker, so force
+	// the canonical suit so struct equality works throughout the game package.
+	if card.Rank == game.Joker {
+		card.Suit = game.NoSuit
+	}
 	log.Printf("[HANDLER-PLAY] player=%q seat=%d card=%s phase=%v trick_step=%d",
 		c.Name, seat, card.String(), g.Phase, len(g.Current.Cards))
 	if err := g.PlayCard(seat, card); err != nil {
