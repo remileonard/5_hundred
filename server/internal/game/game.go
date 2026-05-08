@@ -341,6 +341,11 @@ func (g *Game) validatePlay(playerIdx int, c Card) error {
 		return errors.New("card not available to play: " + c.String())
 	}
 
+	// The Joker is always playable regardless of follow-suit obligations.
+	if c.IsJoker() {
+		return nil
+	}
+
 	if g.Variant == TwoPlayer {
 		n := len(g.Current.Cards)
 		// Follower must follow suit: step 1 and step 3 both reference Cards[0]
@@ -351,6 +356,9 @@ func (g *Game) validatePlay(playerIdx int, c Card) error {
 			ledSuit := ledCard.EffectiveSuit(g.Trump)
 			hasSuit := false
 			for _, a := range available {
+				if a.IsJoker() {
+					continue // Joker never counts as satisfying a suit requirement
+				}
 				if a.EffectiveSuit(g.Trump) == ledSuit {
 					hasSuit = true
 					break
@@ -370,6 +378,9 @@ func (g *Game) validatePlay(playerIdx int, c Card) error {
 		ledSuit := g.Current.Cards[0].EffectiveSuit(g.Trump)
 		hasSuit := false
 		for _, a := range available {
+			if a.IsJoker() {
+				continue // Joker never counts as satisfying a suit requirement
+			}
 			if a.EffectiveSuit(g.Trump) == ledSuit {
 				hasSuit = true
 				break

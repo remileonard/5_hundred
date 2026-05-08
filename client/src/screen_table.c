@@ -249,6 +249,12 @@ static bool is_playable(ClientGameState *gs, int card_idx)
 {
     if (gs->phase != PHASE_PLAYING) return true;
     if (gs->to_act != gs->local_seat) return false;
+
+    PlayerSlot *p = &gs->players[gs->local_seat];
+
+    /* The Joker is always playable regardless of follow-suit obligations. */
+    if ((int)p->hand[card_idx].rank == RANK_JOKER) return true;
+
     /* In 2-player, when tableau is forced and it's not a free-choice trick, hand is off. */
     bool free_choice = (gs->trick_count == 0 && gs->tricks_completed == 0);
     if (gs->num_players == 2 && gs->two_player_hand_type == 1 && !free_choice) return false;
@@ -261,7 +267,6 @@ static bool is_playable(ClientGameState *gs, int card_idx)
             && gs->to_act == gs->trick_leader)
         return true;
 
-    PlayerSlot *p = &gs->players[gs->local_seat];
     int n = p->hand_count;
     int trump = gs->trump_suit;
     /* Follow-suit rule: always reference trick[0] (the card led at step 0).
@@ -270,9 +275,10 @@ static bool is_playable(ClientGameState *gs, int card_idx)
     int led_idx = 0;
     int led_eff = card_eff_suit(gs->trick[led_idx], trump);
 
-    /* Check if player has any card of the led effective suit (hand only now) */
+    /* Check if player has any non-Joker card of the led effective suit (hand only now) */
     bool has_led_suit = false;
     for (int i = 0; i < n; i++) {
+        if ((int)p->hand[i].rank == RANK_JOKER) continue; /* Joker never satisfies suit */
         if (card_eff_suit(p->hand[i], trump) == led_eff) { has_led_suit = true; break; }
     }
     if (!has_led_suit) return true;  /* no matching suit — can play anything */
