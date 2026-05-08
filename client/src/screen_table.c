@@ -191,21 +191,34 @@ static void draw_trick(App *app)
     static const int off_x[4] = { 0,  0,  1, -1 };
     static const int off_y[4] = { 1, -1,  0,  0 };
     for (int i = 0; i < count; i++) {
-        int seat = (leader + i) % gs->num_players;
-        int tx = TRICK_CX + off_x[seat] * TRICK_SPREAD - CARD_W / 2;
-        int ty = TRICK_CY + off_y[seat] * (TRICK_SPREAD * 2 / 3) - CARD_H / 2;
-
-        /* In 2-player, all 4 cards land in just 2 positions (player 0 bottom,
-         * player 1 top). Split sub-play 1 to the left and sub-play 2 to the
-         * right so all four cards are distinguishable.
-         * tx is overridden; ty remains correct (off_y gives distinct y for each
-         * seat: seat 0 = bottom, seat 1 = top), so all 4 cards end up at
-         * unique (tx, ty) positions in a 2×2 grid. */
-        if (gs->num_players == 2 && count == 4) {
-            int sub_offset = (i < 2) ? -(TRICK_SPREAD / 2) : +(TRICK_SPREAD / 2);
-            tx = TRICK_CX + sub_offset - CARD_W / 2;
+        int virt_seat;
+        if (gs->num_players == 2) {
+            /* In 2-player, a combined trick has up to 4 plays (2 sub-plays).
+             * Map each play index to a virtual 4-player position so cards
+             * spread across all four directions and never overlap:
+             *   play 0 (sub1 leader)   → bottom (virtual seat 0)
+             *   play 1 (sub1 follower) → top    (virtual seat 1)
+             *   play 2 (sub2 leader)   → right  (virtual seat 2)
+             *   play 3 (sub2 follower) → left   (virtual seat 3)
+             * For the local player's seat adjust the mapping so their card
+             * lands at the bottom (virtual seat 0 = local). */
+            int local = gs->local_seat;
+            int first_play_is_local = (leader == local) ? 1 : 0;
+            if (first_play_is_local) {
+                /* leader is local: plays 0,2 are local (bottom/right), 1,3 are opponent (top/left) */
+                static const int virt_local_first[4] = {0, 1, 2, 3};
+                virt_seat = virt_local_first[i];
+            } else {
+                /* leader is opponent: plays 0,2 are opponent, 1,3 are local
+                 * swap so local always lands at bottom */
+                static const int virt_opp_first[4] = {1, 0, 3, 2};
+                virt_seat = virt_opp_first[i];
+            }
+        } else {
+            virt_seat = (leader + i) % gs->num_players;
         }
-
+        int tx = TRICK_CX + off_x[virt_seat] * TRICK_SPREAD - CARD_W / 2;
+        int ty = TRICK_CY + off_y[virt_seat] * (TRICK_SPREAD * 2 / 3) - CARD_H / 2;
         card_draw(app->renderer, app->font_md, app->font_sm, cards[i], tx, ty);
     }
 }
