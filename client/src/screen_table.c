@@ -182,12 +182,30 @@ static void draw_card_backs_v(SDL_Renderer *r, int cx, int cy, int n)
 
 static void draw_score(App *app)
 {
+    ClientGameState *gs = &app->gs;
     char buf[64];
     snprintf(buf, sizeof(buf), "\u00c9quipe A: %d   \u00c9quipe B: %d",
-             app->gs.scores[0], app->gs.scores[1]);
+             gs->scores[0], gs->scores[1]);
     /* Top-right corner, away from opponent cards and the lobby button */
     SDL_Rect r = {WINDOW_W - 280, 8, 272, 20};
     ui_text_centered(app->renderer, app->font_sm, buf, r, COL_WHITE);
+
+    /* During play, show tricks won this round for each team */
+    if (gs->phase == PHASE_PLAYING && gs->num_players > 0) {
+        int tricks_a, tricks_b;
+        if (gs->num_players == 4) {
+            tricks_a = gs->players[0].tricks_won + gs->players[2].tricks_won;
+            tricks_b = gs->players[1].tricks_won + gs->players[3].tricks_won;
+        } else {
+            tricks_a = gs->players[0].tricks_won;
+            tricks_b = gs->players[1].tricks_won;
+        }
+        char tw[64];
+        snprintf(tw, sizeof(tw), "Plis A: %d   Plis B: %d", tricks_a, tricks_b);
+        SDL_Rect tr = {WINDOW_W - 280, 28, 272, 20};
+        ui_text_centered(app->renderer, app->font_sm, tw, tr,
+                         (SDL_Color){180, 200, 230, 255});
+    }
 }
 
 static void draw_trick(App *app)
@@ -567,16 +585,6 @@ static void draw_info_bar(App *app)
                                 : (SDL_Color){160, 170, 200, 255};
         SDL_Rect r = {0, 30, WINDOW_W, 26};
         ui_text_centered(app->renderer, app->font_sm, buf, r, col);
-    }
-    if (gs->phase == PHASE_PLAYING && gs->num_players == 2) {
-        /* Show tricks won for each player. */
-        char tw[64];
-        snprintf(tw, sizeof(tw), "Plis : %s %d  \u2013  %s %d",
-                 gs->players[0].name, gs->players[0].tricks_won,
-                 gs->players[1].name, gs->players[1].tricks_won);
-        SDL_Rect tr2 = {0, 56, WINDOW_W, 20};
-        ui_text_centered(app->renderer, app->font_sm, tw, tr2,
-                         (SDL_Color){180, 200, 230, 255});
     }
     if (gs->phase == PHASE_KITTY) {
         bool mine = (gs->contractor == gs->local_seat);
