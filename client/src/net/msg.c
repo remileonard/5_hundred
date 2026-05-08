@@ -405,6 +405,11 @@ static void handle_game_state(App *app, cJSON *payload)
     if (cJSON_IsNumber(ht))
         gs->two_player_hand_type = ht->valueint;
 
+    /* Completed tricks count — used to detect free-choice first trick vs forced source */
+    cJSON *tc = cJSON_GetObjectItemCaseSensitive(payload, "trick_count");
+    if (cJSON_IsNumber(tc))
+        gs->tricks_completed = tc->valueint;
+
     /* Preserve card selection when it's still our turn in playing phase
      * (e.g. a bot played in another seat but it's back to us). */
     if (gs->phase != PHASE_PLAYING || gs->to_act != gs->local_seat)

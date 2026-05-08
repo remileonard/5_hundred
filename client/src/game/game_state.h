@@ -55,6 +55,7 @@ typedef struct {
     Card trick[MAX_TRICK];
     int  trick_count;        /* cards in the current (in-progress) trick */
     int  trick_leader;       /* seat index of trick leader */
+    int  tricks_completed;   /* number of completed tricks so far (TrickCount from server) */
 
     /* Most recently completed trick — shown between turns when trick_count == 0. */
     Card last_trick[MAX_TRICK];
