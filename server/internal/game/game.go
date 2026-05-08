@@ -343,10 +343,11 @@ func (g *Game) validatePlay(playerIdx int, c Card) error {
 
 	if g.Variant == TwoPlayer {
 		n := len(g.Current.Cards)
-		// Follower must follow suit: step 1 (responding to Cards[0]) and
-		// step 3 (responding to Cards[2]).
+		// Follower must follow suit: step 1 and step 3 both reference Cards[0]
+		// because there are no sub-tricks — the whole combined trick is one unit
+		// and the suit led at step 0 governs all follow-suit obligations.
 		if n == 1 || n == 3 {
-			ledCard := g.Current.Cards[n-1] // Cards[0] or Cards[2]
+			ledCard := g.Current.Cards[0] // always the card led at step 0
 			ledSuit := ledCard.EffectiveSuit(g.Trump)
 			hasSuit := false
 			for _, a := range available {

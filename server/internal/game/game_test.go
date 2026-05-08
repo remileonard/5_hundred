@@ -465,9 +465,10 @@ func TestGame_TwoPlayer_DealAndPlay(t *testing.T) {
 		}
 		n := len(g.Current.Cards)
 		var cardToPlay Card
-		// At follower steps, try to follow suit.
+		// At follower steps (1 and 3), follow the suit of Cards[0] — the card
+		// led at step 0 governs all follow-suit obligations for the whole trick.
 		if n == 1 || n == 3 {
-			ledSuit := g.Current.Cards[n-1].EffectiveSuit(g.Trump)
+			ledSuit := g.Current.Cards[0].EffectiveSuit(g.Trump)
 			for _, c := range available {
 				if c.EffectiveSuit(g.Trump) == ledSuit {
 					cardToPlay = c

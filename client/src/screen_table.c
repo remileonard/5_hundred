@@ -264,8 +264,10 @@ static bool is_playable(ClientGameState *gs, int card_idx)
     PlayerSlot *p = &gs->players[gs->local_seat];
     int n = p->hand_count;
     int trump = gs->trump_suit;
-    /* Step 3: follower of the second sub-play uses trick[2] as the led card. */
-    int led_idx = (gs->num_players == 2 && gs->trick_count == 3) ? 2 : 0;
+    /* Follow-suit rule: always reference trick[0] (the card led at step 0).
+     * The combined trick is one unit — no sub-tricks — so the suit led at the
+     * start governs all follow-suit obligations (steps 1 and 3). */
+    int led_idx = 0;
     int led_eff = card_eff_suit(gs->trick[led_idx], trump);
 
     /* Check if player has any card of the led effective suit (hand only now) */
