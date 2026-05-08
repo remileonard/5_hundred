@@ -49,8 +49,15 @@
 #define BID_COLS    5
 #define BID_ROWS    5
 
+/* Bid panel dimensions (shared between centred and right-side layouts) */
+#define BID_PANEL_W       436   /* total panel width including padding */
+#define BID_PANEL_H       260   /* total panel height */
+#define BID_PANEL_PAD_X    55   /* horizontal padding between panel edge and grid */
+#define BID_PANEL_PAD_TOP  36   /* vertical space from panel top to grid top */
+#define BID_PANEL_MARGIN    6   /* gap between panel bottom and the hand row (4-player) */
+
 /* Bottom action panel Y */
-#define ACTION_PANEL_Y  (HAND_Y - 260)
+#define ACTION_PANEL_Y  (HAND_Y - BID_PANEL_H)
 
 /* ── Bid numeric value (mirrors server) ──────────────────────────────────────── */
 
@@ -95,20 +102,23 @@ static const char *SUIT_LABELS[5] = { "\u2660", "\u2663", "\u2666", "\u2665", "N
 
 static void init_action_buttons(App *app)
 {
-    int grid_w = BID_COLS * (BID_BTN_W + BID_GAP) - BID_GAP;
     int grid_x, grid_y;
 
     if (app->gs.num_players == 2) {
         /* 2-player: place bid panel on the right side so the hand and
          * tableau remain fully visible in the centre of the screen. */
-        grid_x = WINDOW_W - 436 + 55;  /* right-aligned, symmetric 55 px padding */
-        grid_y = 140;
-        s_bid_panel_rect = (SDL_Rect){ WINDOW_W - 436, grid_y - 36, 436, 260 };
+        s_bid_panel_rect = (SDL_Rect){ WINDOW_W - BID_PANEL_W,
+                                       TABLEAU_OPP_Y - BID_PANEL_PAD_TOP,
+                                       BID_PANEL_W, BID_PANEL_H };
+        grid_x = s_bid_panel_rect.x + BID_PANEL_PAD_X;
+        grid_y = s_bid_panel_rect.y + BID_PANEL_PAD_TOP;
     } else {
         /* 4-player (and default): centred at the bottom */
-        grid_x = WINDOW_W / 2 - grid_w / 2;
-        grid_y = ACTION_PANEL_Y + 30;
-        s_bid_panel_rect = (SDL_Rect){ WINDOW_W/2 - 218, ACTION_PANEL_Y - 6, 436, 260 };
+        s_bid_panel_rect = (SDL_Rect){ WINDOW_W/2 - BID_PANEL_W/2,
+                                       ACTION_PANEL_Y - BID_PANEL_MARGIN,
+                                       BID_PANEL_W, BID_PANEL_H };
+        grid_x = s_bid_panel_rect.x + BID_PANEL_PAD_X;
+        grid_y = s_bid_panel_rect.y + BID_PANEL_PAD_TOP;
     }
 
     for (int row = 0; row < BID_ROWS; row++) {
