@@ -185,7 +185,9 @@ static void draw_score(App *app)
     char buf[64];
     snprintf(buf, sizeof(buf), "\u00c9quipe A: %d   \u00c9quipe B: %d",
              app->gs.scores[0], app->gs.scores[1]);
-    ui_text(app->renderer, app->font_sm, buf, WINDOW_W / 2 - 140, 8, COL_WHITE);
+    /* Top-right corner, away from opponent cards and the lobby button */
+    SDL_Rect r = {WINDOW_W - 280, 8, 272, 20};
+    ui_text_centered(app->renderer, app->font_sm, buf, r, COL_WHITE);
 }
 
 static void draw_trick(App *app)
