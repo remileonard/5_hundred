@@ -100,18 +100,21 @@ static SDL_Rect s_bid_panel_rect;
 
 static const char *SUIT_LABELS[5] = { "\u2660", "\u2663", "\u2666", "\u2665", "NT" };
 
+/* Recompute bid button positions every call.  The panel position depends on
+ * gs->num_players which can change between games, so we cannot cache once. */
 static void init_action_buttons(App *app)
 {
     int grid_x, grid_y;
 
     if (app->gs.num_players == 2) {
-        /* 2-player: place bid panel on the right side so the hand and
-         * tableau remain fully visible in the centre of the screen. */
+        /* 2-player: bid panel on the right side so hand+tableau remain
+         * visible in the centre.  Align the grid top with TABLEAU_OPP_Y so
+         * it sits beside the opponent cards without overlap. */
         s_bid_panel_rect = (SDL_Rect){ WINDOW_W - BID_PANEL_W,
                                        TABLEAU_OPP_Y - BID_PANEL_PAD_TOP,
                                        BID_PANEL_W, BID_PANEL_H };
         grid_x = s_bid_panel_rect.x + BID_PANEL_PAD_X;
-        grid_y = s_bid_panel_rect.y + BID_PANEL_PAD_TOP;
+        grid_y = TABLEAU_OPP_Y;
     } else {
         /* 4-player (and default): centred at the bottom */
         s_bid_panel_rect = (SDL_Rect){ WINDOW_W/2 - BID_PANEL_W/2,
