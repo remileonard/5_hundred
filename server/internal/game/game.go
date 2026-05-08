@@ -67,9 +67,10 @@ type Game struct {
 	Scores     [2]int   // cumulative team scores (Team0, Team1)
 
 	// 2-player variant fields (only used during PhasePlaying in TwoPlayer variant).
-	// TwoPlayerHandType reflects which source is currently active:
+	// TwoPlayerHandType reflects which source is currently active for display:
 	//   0 = private hand, 1 = tableau (open hand).
-	// It is updated as each card is played within the combined trick.
+	// Updated as each card is played within a combined trick, and set to the
+	// forced starting source between tricks (so the UI always shows the right state).
 	TwoPlayerHandType int
 	// TwoPlayerFirstSource is the source chosen by the leader for the first
 	// sub-play of the current combined trick (0=hand, 1=tableau).
@@ -80,8 +81,9 @@ type Game struct {
 	TwoPlayerSecondLeader int
 	// TwoPlayerForcedSource is the source the next combined-trick leader must
 	// start with. -1 means free choice (first trick only). After each completed
-	// combined trick it is set to the source used in sub-play 2
-	// (= 1 - TwoPlayerFirstSource), because that is the source the winner won with.
+	// combined trick it is set to the source of the winning card:
+	//   winning card was Cards[0] or Cards[1] → TwoPlayerFirstSource (source X)
+	//   winning card was Cards[2] or Cards[3] → 1-TwoPlayerFirstSource (source Y)
 	TwoPlayerForcedSource int
 
 	// LastCompletedTrick holds the cards of the most recently completed trick
