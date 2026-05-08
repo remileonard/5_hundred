@@ -50,14 +50,15 @@
 #define BID_ROWS    5
 
 /* Bid panel dimensions (shared between centred and right-side layouts) */
-#define BID_PANEL_W       436   /* total panel width including padding */
-#define BID_PANEL_H       260   /* total panel height */
-#define BID_PANEL_PAD_X    55   /* horizontal padding between panel edge and grid */
-#define BID_PANEL_PAD_TOP  36   /* vertical space from panel top to grid top */
-#define BID_PANEL_MARGIN    6   /* gap between panel bottom and the hand row (4-player) */
-
-/* Bottom action panel Y */
-#define ACTION_PANEL_Y  (HAND_Y - BID_PANEL_H)
+#define BID_PANEL_W           436  /* total panel width including padding */
+#define BID_PANEL_PAD_X        55  /* horizontal padding between panel edge and grid */
+#define BID_PANEL_PAD_TOP      36  /* equal top/bottom padding inside the panel (4-player) */
+#define BID_PANEL_2P_PAD_TOP    6  /* equal top/bottom padding inside the panel (2-player) */
+#define BID_PANEL_MARGIN        6  /* gap between panel bottom and the hand row (4-player) */
+/* Total span of the three special buttons (Misère + 8-px gap + Open Misère +
+ * 8-px gap + Passer = 120 + 8 + 140 + 8 + 90). Wider than the bid grid (326)
+ * so it must be centred separately. */
+#define BID_SPECIALS_W    366
 
 /* ── Bid numeric value (mirrors server) ──────────────────────────────────────── */
 
@@ -107,21 +108,30 @@ static void init_action_buttons(App *app)
     int grid_x, grid_y;
 
     if (app->gs.num_players == 2) {
-        /* 2-player: bid panel on the right side so hand+tableau remain
-         * visible in the centre.  Align the grid top with TABLEAU_OPP_Y so
-         * it sits beside the opponent cards without overlap. */
-        s_bid_panel_rect = (SDL_Rect){ WINDOW_W - BID_PANEL_W,
-                                       TABLEAU_OPP_Y - BID_PANEL_PAD_TOP,
-                                       BID_PANEL_W, BID_PANEL_H };
+        /* 2-player: panel centred horizontally and vertically in the gap
+         * between the two tableau rows.  Equal top/bottom padding
+         * (BID_PANEL_2P_PAD_TOP each side) keeps the black border symmetric.
+         * panel_h = 6 + 224 + 6 = 236 px, fits in the 246 px gap with 5 px
+         * clearance above and below each tableau row. */
+        int panel_h = 2 * BID_PANEL_2P_PAD_TOP + BID_ROWS * (BID_BTN_H + BID_GAP) + BID_BTN_H;
+        int panel_y = (TABLEAU_OPP_Y + CARD_H + TABLEAU_LOCAL_Y) / 2 - panel_h / 2;
+        s_bid_panel_rect = (SDL_Rect){ WINDOW_W / 2 - BID_PANEL_W / 2,
+                                       panel_y,
+                                       BID_PANEL_W, panel_h };
         grid_x = s_bid_panel_rect.x + BID_PANEL_PAD_X;
-        grid_y = TABLEAU_OPP_Y;
+        grid_y = panel_y + BID_PANEL_2P_PAD_TOP;
     } else {
-        /* 4-player (and default): centred at the bottom */
+        /* 4-player (and default): centred at the bottom, symmetrically padded.
+         * panel_h = 2×BID_PANEL_PAD_TOP + content_h = 72 + 224 = 296 px.
+         * Panel is anchored so its bottom sits BID_PANEL_MARGIN px above HAND_Y,
+         * giving equal 36 px black border above and below the buttons. */
+        int panel_h = 2 * BID_PANEL_PAD_TOP + BID_ROWS * (BID_BTN_H + BID_GAP) + BID_BTN_H;
+        int panel_y = HAND_Y - BID_PANEL_MARGIN - panel_h;
         s_bid_panel_rect = (SDL_Rect){ WINDOW_W/2 - BID_PANEL_W/2,
-                                       ACTION_PANEL_Y - BID_PANEL_MARGIN,
-                                       BID_PANEL_W, BID_PANEL_H };
+                                       panel_y,
+                                       BID_PANEL_W, panel_h };
         grid_x = s_bid_panel_rect.x + BID_PANEL_PAD_X;
-        grid_y = s_bid_panel_rect.y + BID_PANEL_PAD_TOP;
+        grid_y = panel_y + BID_PANEL_PAD_TOP;
     }
 
     for (int row = 0; row < BID_ROWS; row++) {
@@ -136,10 +146,15 @@ static void init_action_buttons(App *app)
             };
         }
     }
-    int specials_y = grid_y + BID_ROWS * (BID_BTN_H + BID_GAP) + 6;
-    s_bid_misere      = (Button){ {grid_x,       specials_y, 120, BID_BTN_H}, "Mis\u00e8re",      false };
-    s_bid_open_misere = (Button){ {grid_x + 128, specials_y, 140, BID_BTN_H}, "Open Mis\u00e8re", false };
-    btn_pass          = (Button){ {grid_x + 276, specials_y,  90, BID_BTN_H}, "Passer",           false };
+    /* specials_y: immediately below the grid (no extra gap to avoid overflowing
+     * the panel background).  specials_x: centred within the panel independent
+     * of grid_x, because the three buttons together (366 px) are wider than the
+     * bid grid (326 px). */
+    int specials_y = grid_y + BID_ROWS * (BID_BTN_H + BID_GAP);
+    int specials_x = s_bid_panel_rect.x + (BID_PANEL_W - BID_SPECIALS_W) / 2;
+    s_bid_misere      = (Button){ {specials_x,       specials_y, 120, BID_BTN_H}, "Mis\u00e8re",      false };
+    s_bid_open_misere = (Button){ {specials_x + 128, specials_y, 140, BID_BTN_H}, "Open Mis\u00e8re", false };
+    btn_pass          = (Button){ {specials_x + 276, specials_y,  90, BID_BTN_H}, "Passer",           false };
 }
 
 /* ── Discard selection ───────────────────────────────────────────────────────── */
