@@ -564,6 +564,9 @@ func TestGame_TwoPlayer_CombinedTrickStructure(t *testing.T) {
 	}
 	avail2 := g.AvailableCards(leader2)
 	for _, c := range avail2 {
+		if c.IsJoker() {
+			continue // Joker is always available regardless of source
+		}
 		found := false
 		for i := 0; i < 5; i++ {
 			if g.Players[leader2].Tableau[5+i] == c {
@@ -586,6 +589,9 @@ func TestGame_TwoPlayer_CombinedTrickStructure(t *testing.T) {
 	follower2 := 1 - leader2
 	avail3 := g.AvailableCards(follower2)
 	for _, c := range avail3 {
+		if c.IsJoker() {
+			continue // Joker is always available regardless of source
+		}
 		found := false
 		for i := 0; i < 5; i++ {
 			if g.Players[follower2].Tableau[5+i] == c {
@@ -661,10 +667,13 @@ func TestGame_TwoPlayer_LeaderChoosesTableauFirst(t *testing.T) {
 		t.Errorf("expected TwoPlayerFirstSource=1 (tableau), got %d", g.TwoPlayerFirstSource)
 	}
 
-	// Step 1: follower must have only tableau cards.
+	// Step 1: follower must have only tableau cards (Joker is always an exception).
 	follower := 1 - leader
 	avail1 := g.AvailableCards(follower)
 	for _, c := range avail1 {
+		if c.IsJoker() {
+			continue // Joker is always available regardless of source
+		}
 		found := false
 		for i := 0; i < 5; i++ {
 			if g.Players[follower].Tableau[5+i] == c {
@@ -678,7 +687,50 @@ func TestGame_TwoPlayer_LeaderChoosesTableauFirst(t *testing.T) {
 	}
 }
 
-// ── Score table ───────────────────────────────────────────────────────────────
+// TestGame_TwoPlayer_JokerAlwaysPlayable verifies that the Joker can be played
+// as the leading card of a combined trick even when TwoPlayerForcedSource points
+// to the tableau (source 1). Before this fix the Joker was excluded from
+// AvailableCards when the forced source was the tableau.
+func TestGame_TwoPlayer_JokerAlwaysPlayable(t *testing.T) {
+	const maxSeedsToTry = 200
+	// Find a seed that gives a player the Joker.
+	var g *Game
+	var jokerHolder int
+	for seed := int64(0); seed < maxSeedsToTry; seed++ {
+		cand := newGame2(seed)
+		playBiddingPhase(t, cand)
+		cand.PickUpKitty(cand.Contractor)
+		cand.Discard(cand.Contractor, cand.Players[cand.Contractor].Hand[:3])
+		for p := 0; p < 2; p++ {
+			if findCard(cand.Players[p].Hand, TheJoker) >= 0 {
+				g = cand
+				jokerHolder = p
+				goto found
+			}
+		}
+	}
+found:
+	if g == nil {
+		t.Skip("could not find a seed where a player holds the Joker")
+	}
+
+	// Force TwoPlayerForcedSource to 1 (tableau) so the leader must start from
+	// the tableau.  Then check that the Joker holder can still play the Joker.
+	g.TwoPlayerForcedSource = 1
+	g.ToAct = jokerHolder
+	g.Current = Trick{Leader: jokerHolder}
+
+	avail := g.AvailableCards(jokerHolder)
+	if findCard(avail, TheJoker) < 0 {
+		t.Fatalf("Joker not in AvailableCards when ForcedSource=1 (tableau); got %v", avail)
+	}
+
+	if err := g.PlayCard(jokerHolder, TheJoker); err != nil {
+		t.Fatalf("PlayCard(Joker) when ForcedSource=1 failed: %v", err)
+	}
+}
+
+
 
 func TestScoreTable_10NT(t *testing.T) {
 	// 10NT should be worth 520 points.
