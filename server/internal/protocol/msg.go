@@ -129,6 +129,12 @@ type GameStatePayload struct {
 	// When len(trick)==0 (leader's first play), both sources are available
 	// regardless of this value.
 	TwoPlayerHandType int `json:"two_player_hand_type,omitempty"`
+	// LastTrick / LastTrickLeader: cards of the most recently completed trick
+	// (4 cards in 2-player combined trick, 4 cards in 4-player trick).
+	// Sent so clients can display the completed trick between turns, i.e. when
+	// len(trick)==0 and no new card has been played yet.
+	LastTrick       []CardDTO `json:"last_trick,omitempty"`
+	LastTrickLeader int       `json:"last_trick_leader,omitempty"`
 }
 
 type GameEventPayload struct {

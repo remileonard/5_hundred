@@ -78,6 +78,12 @@ type Game struct {
 	// TwoPlayerSecondLeader is the player who leads the second sub-play of the
 	// current combined trick. Set to the winner of the first sub-play.
 	TwoPlayerSecondLeader int
+
+	// LastCompletedTrick holds the cards of the most recently completed trick
+	// (or combined trick in 2-player). Cleared at game start; overwritten after
+	// each trick. Sent to clients so they can show the completed trick between turns.
+	LastCompletedTrick       []Card
+	LastCompletedTrickLeader int
 }
 
 // New creates and deals a new Game. rng is used for shuffling.
@@ -455,6 +461,12 @@ func twoCardWinner(c0, c1 Card, trump Suit) int {
 func (g *Game) completeCombinedTrick() {
 	cards := g.Current.Cards
 
+	// Persist all four cards so the client can display them between turns.
+	saved := make([]Card, 4)
+	copy(saved, cards)
+	g.LastCompletedTrick = saved
+	g.LastCompletedTrickLeader = g.Current.Leader
+
 	// Sub-play 1.
 	cards1 := []Card{cards[0], cards[1]}
 	t1 := Trick{Leader: g.Current.Leader, Cards: cards1}
@@ -491,6 +503,13 @@ func (g *Game) completeTrick() {
 	winOffset := g.Current.winner(g.Trump)
 	winner := (g.Current.Leader + winOffset) % g.numPlayers()
 	g.Players[winner].Tricks++
+
+	// Persist the completed trick for client display between turns.
+	saved := make([]Card, len(g.Current.Cards))
+	copy(saved, g.Current.Cards)
+	g.LastCompletedTrick = saved
+	g.LastCompletedTrickLeader = g.Current.Leader
+
 	g.Tricks = append(g.Tricks, g.Current)
 
 	if len(g.Tricks) == g.totalTricksForVariant() {

@@ -169,14 +169,41 @@ static void draw_score(App *app)
 static void draw_trick(App *app)
 {
     ClientGameState *gs = &app->gs;
-    if (gs->trick_count == 0 || gs->num_players == 0) return;
+    if (gs->num_players == 0) return;
+
+    /* Prefer the in-progress trick; fall back to the last completed trick so
+     * all four cards remain visible between turns. */
+    const Card *cards;
+    int         count;
+    int         leader;
+    if (gs->trick_count > 0) {
+        cards  = gs->trick;
+        count  = gs->trick_count;
+        leader = gs->trick_leader;
+    } else if (gs->last_trick_count > 0) {
+        cards  = gs->last_trick;
+        count  = gs->last_trick_count;
+        leader = gs->last_trick_leader;
+    } else {
+        return;
+    }
+
     static const int off_x[4] = { 0,  0,  1, -1 };
     static const int off_y[4] = { 1, -1,  0,  0 };
-    for (int i = 0; i < gs->trick_count; i++) {
-        int seat = (gs->trick_leader + i) % gs->num_players;
+    for (int i = 0; i < count; i++) {
+        int seat = (leader + i) % gs->num_players;
         int tx = TRICK_CX + off_x[seat] * TRICK_SPREAD - CARD_W / 2;
         int ty = TRICK_CY + off_y[seat] * (TRICK_SPREAD * 2 / 3) - CARD_H / 2;
-        card_draw(app->renderer, app->font_md, app->font_sm, gs->trick[i], tx, ty);
+
+        /* In 2-player, all 4 cards land in just 2 positions (player 0 bottom,
+         * player 1 top). Split sub-play 1 to the left and sub-play 2 to the
+         * right so all four cards are distinguishable. */
+        if (gs->num_players == 2 && count == 4) {
+            int sub_offset = (i < 2) ? -(TRICK_SPREAD / 2) : +(TRICK_SPREAD / 2);
+            tx = TRICK_CX + sub_offset - CARD_W / 2;
+        }
+
+        card_draw(app->renderer, app->font_md, app->font_sm, cards[i], tx, ty);
     }
 }
 

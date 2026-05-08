@@ -56,6 +56,11 @@ typedef struct {
     int  trick_count;        /* cards in the current (in-progress) trick */
     int  trick_leader;       /* seat index of trick leader */
 
+    /* Most recently completed trick — shown between turns when trick_count == 0. */
+    Card last_trick[MAX_TRICK];
+    int  last_trick_count;
+    int  last_trick_leader;
+
     Card kitty[3];           /* kitty cards, visible to contractor during PHASE_KITTY */
     int  kitty_count;        /* 0 or 3 */
 

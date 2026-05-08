@@ -360,6 +360,22 @@ static void handle_game_state(App *app, cJSON *payload)
         }
     }
 
+    /* Last completed trick — shown between turns when trick_count == 0 */
+    cJSON *last_trick        = cJSON_GetObjectItemCaseSensitive(payload, "last_trick");
+    cJSON *last_trick_leader = cJSON_GetObjectItemCaseSensitive(payload, "last_trick_leader");
+    if (cJSON_IsNumber(last_trick_leader))
+        gs->last_trick_leader = last_trick_leader->valueint;
+    if (cJSON_IsArray(last_trick)) {
+        gs->last_trick_count = 0;
+        cJSON *c;
+        cJSON_ArrayForEach(c, last_trick) {
+            if (gs->last_trick_count >= MAX_TRICK) break;
+            gs->last_trick[gs->last_trick_count++] = card_from_dto(c);
+        }
+    } else {
+        gs->last_trick_count = 0;
+    }
+
     /* Bid history */
     cJSON *bids = cJSON_GetObjectItemCaseSensitive(payload, "bids");
     if (cJSON_IsArray(bids)) {

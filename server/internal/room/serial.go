@@ -157,6 +157,8 @@ func BuildGameState(g *game.Game, r *Room, forSeat int) protocol.GameStatePayloa
 		Scores:            g.Scores,
 		Bids:              bids,
 		TwoPlayerHandType: g.TwoPlayerHandType,
+		LastTrick:         cardsToDTO(g.LastCompletedTrick),
+		LastTrickLeader:   g.LastCompletedTrickLeader,
 	}
 }
 
