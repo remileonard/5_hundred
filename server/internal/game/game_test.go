@@ -373,7 +373,7 @@ func playFullGame4(t *testing.T, seed int64) *Game {
 
 	for g.Phase == PhasePlaying {
 		p := g.ToAct
-		available := g.availableCards(p)
+		available := g.AvailableCards(p)
 		var cardToPlay Card
 		// Play any legal card: first try following suit, else first available.
 		if len(g.Current.Cards) > 0 {
@@ -446,9 +446,19 @@ func TestGame_TwoPlayer_DealAndPlay(t *testing.T) {
 	g.PickUpKitty(g.Contractor)
 	g.Discard(g.Contractor, g.Players[g.Contractor].Hand[:3])
 
+	if g.Phase != PhaseChooseHand {
+		t.Fatalf("expected PhaseChooseHand after discard in 2-player, got %v", g.Phase)
+	}
+	if err := g.ChooseHand(g.Contractor, 0); err != nil {
+		t.Fatalf("ChooseHand failed: %v", err)
+	}
+	if g.Phase != PhasePlaying {
+		t.Fatalf("expected PhasePlaying after ChooseHand, got %v", g.Phase)
+	}
+
 	for g.Phase == PhasePlaying {
 		p := g.ToAct
-		available := g.availableCards(p)
+		available := g.AvailableCards(p)
 		var cardToPlay Card
 		if len(g.Current.Cards) > 0 {
 			ledSuit := g.Current.Cards[0].EffectiveSuit(g.Trump)
@@ -476,6 +486,114 @@ func TestGame_TwoPlayer_DealAndPlay(t *testing.T) {
 	}
 	if total != 20 {
 		t.Errorf("2-player: expected 20 tricks total, got %d", total)
+	}
+}
+
+// ── Score table ───────────────────────────────────────────────────────────────
+
+func TestGame_TwoPlayer_ChooseHand(t *testing.T) {
+	g := newGame2(5)
+	playBiddingPhase(t, g)
+	g.PickUpKitty(g.Contractor)
+	g.Discard(g.Contractor, g.Players[g.Contractor].Hand[:3])
+
+	if g.Phase != PhaseChooseHand {
+		t.Fatalf("expected PhaseChooseHand, got %v", g.Phase)
+	}
+	// Wrong player cannot choose.
+	other := 1 - g.Contractor
+	if err := g.ChooseHand(other, 0); err == nil {
+		t.Error("non-contractor should not be able to choose hand")
+	}
+	// Invalid type rejected.
+	if err := g.ChooseHand(g.Contractor, 2); err == nil {
+		t.Error("invalid hand type should be rejected")
+	}
+	// Contractor chooses tableau (type=1) first.
+	if err := g.ChooseHand(g.Contractor, 1); err != nil {
+		t.Fatalf("ChooseHand(1) failed: %v", err)
+	}
+	if g.Phase != PhasePlaying {
+		t.Fatalf("expected PhasePlaying after ChooseHand, got %v", g.Phase)
+	}
+	if g.TwoPlayerHandType != 1 {
+		t.Errorf("expected TwoPlayerHandType=1, got %d", g.TwoPlayerHandType)
+	}
+	// Available cards should be tableau face-up cards only.
+	avail := g.AvailableCards(g.Contractor)
+	for _, c := range avail {
+		// Verify every available card is in the tableau face-up slots.
+		found := false
+		for i := 0; i < 5; i++ {
+			if g.Players[g.Contractor].Tableau[5+i] == c {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("AvailableCards returned %v which is not a face-up tableau card", c)
+		}
+	}
+}
+
+func TestGame_TwoPlayer_HandSwitchAfter10Tricks(t *testing.T) {
+	g := newGame2(7)
+	playBiddingPhase(t, g)
+	g.PickUpKitty(g.Contractor)
+	g.Discard(g.Contractor, g.Players[g.Contractor].Hand[:3])
+	// Choose hand first.
+	if err := g.ChooseHand(g.Contractor, 0); err != nil {
+		t.Fatal(err)
+	}
+	if g.TwoPlayerHandType != 0 {
+		t.Errorf("expected hand type 0, got %d", g.TwoPlayerHandType)
+	}
+
+	// Play 10 tricks (hand sub-game).
+	for i := 0; i < 10; i++ {
+		if g.Phase != PhasePlaying {
+			t.Fatalf("trick %d: expected PhasePlaying, got %v", i, g.Phase)
+		}
+		for g.Phase == PhasePlaying && len(g.Tricks) == i {
+			p := g.ToAct
+			avail := g.AvailableCards(p)
+			if len(avail) == 0 {
+				t.Fatalf("trick %d: no available cards for player %d", i, p)
+			}
+			// Choose a valid card (follow suit if required).
+			cardToPlay := avail[0]
+			if len(g.Current.Cards) > 0 {
+				ledSuit := g.Current.Cards[0].EffectiveSuit(g.Trump)
+				for _, c := range avail {
+					if c.EffectiveSuit(g.Trump) == ledSuit {
+						cardToPlay = c
+						break
+					}
+				}
+			}
+			if err := g.PlayCard(p, cardToPlay); err != nil {
+				t.Fatalf("trick %d play failed: %v", i, err)
+			}
+		}
+	}
+
+	// After 10 tricks, hand type must have switched to 1 (tableau).
+	if g.TwoPlayerHandType != 1 {
+		t.Errorf("after 10 tricks expected hand type 1, got %d", g.TwoPlayerHandType)
+	}
+	// Available cards should now be tableau only.
+	avail0 := g.AvailableCards(0)
+	for _, c := range avail0 {
+		found := false
+		for i := 0; i < 5; i++ {
+			if g.Players[0].Tableau[5+i] == c {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("after switch: AvailableCards returned %v which is not a face-up tableau card", c)
+		}
 	}
 }
 

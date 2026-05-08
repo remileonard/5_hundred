@@ -9,8 +9,9 @@ import (
 type Phase int
 
 const (
-	PhaseBidding Phase = iota
-	PhaseKitty         // winner picks up kitty and discards
+	PhaseBidding    Phase = iota
+	PhaseKitty            // winner picks up kitty and discards
+	PhaseChooseHand       // 2-player only: contractor chooses which hand type to play first
 	PhasePlaying
 	PhaseScoring
 	PhaseEnd
@@ -65,6 +66,11 @@ type Game struct {
 	Current    Trick    // trick in progress
 	ToAct      int      // index of the player who must act next
 	Scores     [2]int   // cumulative team scores (Team0, Team1)
+
+	// 2-player variant: which hand type is active in the current sub-game.
+	// 0 = private hand, 1 = tableau (open hand).
+	// The contractor sets this via ChooseHand. After 10 tricks it flips automatically.
+	TwoPlayerHandType int
 }
 
 // New creates and deals a new Game. rng is used for shuffling.
@@ -222,6 +228,33 @@ func (g *Game) Discard(playerIdx int, cards []Card) error {
 	}
 	g.Players[playerIdx].Hand = hand
 
+	if g.Variant == TwoPlayer {
+		// 2-player: contractor must choose which hand type to play first.
+		g.Phase = PhaseChooseHand
+		g.ToAct = g.Contractor
+	} else {
+		g.Phase = PhasePlaying
+		g.ToAct = g.Contractor
+		g.Current = Trick{Leader: g.Contractor}
+	}
+	return nil
+}
+
+// ChooseHand is called by the contractor in the 2-player variant during
+// PhaseChooseHand to select which hand type to play first.
+// handType: 0 = private hand, 1 = tableau (open hand).
+// After 10 tricks the game will automatically switch to the other type.
+func (g *Game) ChooseHand(playerIdx int, handType int) error {
+	if g.Phase != PhaseChooseHand {
+		return errors.New("not in choose-hand phase")
+	}
+	if playerIdx != g.Contractor {
+		return errors.New("only the contractor can choose the hand type")
+	}
+	if handType != 0 && handType != 1 {
+		return errors.New("invalid hand type: must be 0 (hand) or 1 (tableau)")
+	}
+	g.TwoPlayerHandType = handType
 	g.Phase = PhasePlaying
 	g.ToAct = g.Contractor
 	g.Current = Trick{Leader: g.Contractor}
@@ -284,22 +317,34 @@ func (g *Game) validatePlay(playerIdx int, c Card) error {
 	return nil
 }
 
-// AvailableCards returns all cards a player may legally play (hand + visible tableau).
+// AvailableCards returns all cards a player may legally play.
+// In the 2-player variant, only cards from the active hand type are available:
+//   - TwoPlayerHandType == 0 → private hand only
+//   - TwoPlayerHandType == 1 → visible tableau cards only
+//
 // Tableau layout (2-player): Tableau[i] = face-down of column i,
 // Tableau[5+i] = face-up of column i, for i in 0..4.
 // An empty slot is represented by Card{} (zero value).
 func (g *Game) AvailableCards(playerIdx int) []Card {
 	p := &g.Players[playerIdx]
-	cards := make([]Card, len(p.Hand))
-	copy(cards, p.Hand)
 	if g.Variant == TwoPlayer {
-		// Add the face-up card of each non-empty column.
+		if g.TwoPlayerHandType == 0 {
+			// Sub-game 1 type: private hand only.
+			cards := make([]Card, len(p.Hand))
+			copy(cards, p.Hand)
+			return cards
+		}
+		// Sub-game 2 type: visible tableau cards only.
+		var cards []Card
 		for i := 0; i < 5; i++ {
 			if p.Tableau[5+i] != (Card{}) {
 				cards = append(cards, p.Tableau[5+i])
 			}
 		}
+		return cards
 	}
+	cards := make([]Card, len(p.Hand))
+	copy(cards, p.Hand)
 	return cards
 }
 
@@ -337,6 +382,15 @@ func (g *Game) completeTrick() {
 		g.computeScore()
 		g.Phase = PhaseEnd
 		return
+	}
+
+	// 2-player: after the first 10 tricks, switch to the other hand type.
+	if g.Variant == TwoPlayer && len(g.Tricks) == 10 {
+		if g.TwoPlayerHandType == 0 {
+			g.TwoPlayerHandType = 1
+		} else {
+			g.TwoPlayerHandType = 0
+		}
 	}
 
 	g.Current = Trick{Leader: winner}

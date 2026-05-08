@@ -116,6 +116,15 @@ void net_send_play(Card c)
     send_json(root);
 }
 
+void net_send_choose_hand(int hand_type)
+{
+    cJSON *root    = make_msg("game.choose_hand");
+    cJSON *payload = cJSON_CreateObject();
+    cJSON_AddNumberToObject(payload, "hand_type", hand_type);
+    cJSON_AddItemToObject(root, "payload", payload);
+    send_json(root);
+}
+
 /* ── Parse helpers ───────────────────────────────────────────────────────── */
 
 static void parse_room_info(cJSON *obj, RoomInfoC *ri)
@@ -162,11 +171,12 @@ static int suit_from_str(const char *s)
 static GamePhase phase_from_str(const char *s)
 {
     if (!s) return PHASE_BIDDING;
-    if (strcmp(s, "bidding") == 0) return PHASE_BIDDING;
-    if (strcmp(s, "kitty")   == 0) return PHASE_KITTY;
-    if (strcmp(s, "playing") == 0) return PHASE_PLAYING;
-    if (strcmp(s, "scoring") == 0) return PHASE_SCORING;
-    if (strcmp(s, "end")     == 0) return PHASE_END;
+    if (strcmp(s, "bidding")     == 0) return PHASE_BIDDING;
+    if (strcmp(s, "kitty")       == 0) return PHASE_KITTY;
+    if (strcmp(s, "choose_hand") == 0) return PHASE_CHOOSE_HAND;
+    if (strcmp(s, "playing")     == 0) return PHASE_PLAYING;
+    if (strcmp(s, "scoring")     == 0) return PHASE_SCORING;
+    if (strcmp(s, "end")         == 0) return PHASE_END;
     return PHASE_BIDDING;
 }
 
@@ -383,6 +393,11 @@ static void handle_game_state(App *app, cJSON *payload)
     } else {
         gs->kitty_count = 0;
     }
+
+    /* 2-player hand type (0=hand, 1=tableau) */
+    cJSON *ht = cJSON_GetObjectItemCaseSensitive(payload, "two_player_hand_type");
+    if (cJSON_IsNumber(ht))
+        gs->two_player_hand_type = ht->valueint;
 
     /* Preserve card selection when it's still our turn in playing phase
      * (e.g. a bot played in another seat but it's back to us). */

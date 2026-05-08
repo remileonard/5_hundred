@@ -13,6 +13,7 @@
 typedef enum {
     PHASE_BIDDING = 0,
     PHASE_KITTY,
+    PHASE_CHOOSE_HAND, /* 2-player only: contractor picks hand type */
     PHASE_PLAYING,
     PHASE_SCORING,
     PHASE_END,
@@ -62,6 +63,9 @@ typedef struct {
     int  scores[2];          /* Team 0, Team 1 */
     int  selected_card;      /* index in local hand, -1 = none */
     int  trump_suit;         /* Suit value, SUIT_NONE = no-trumps */
+
+    /* 2-player variant: 0 = private hand active, 1 = tableau active */
+    int  two_player_hand_type;
 
     /* UI feedback */
     char     error_msg[128];   /* last server error, empty = none */
