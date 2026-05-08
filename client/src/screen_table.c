@@ -197,7 +197,10 @@ static void draw_trick(App *app)
 
         /* In 2-player, all 4 cards land in just 2 positions (player 0 bottom,
          * player 1 top). Split sub-play 1 to the left and sub-play 2 to the
-         * right so all four cards are distinguishable. */
+         * right so all four cards are distinguishable.
+         * tx is overridden; ty remains correct (off_y gives distinct y for each
+         * seat: seat 0 = bottom, seat 1 = top), so all 4 cards end up at
+         * unique (tx, ty) positions in a 2×2 grid. */
         if (gs->num_players == 2 && count == 4) {
             int sub_offset = (i < 2) ? -(TRICK_SPREAD / 2) : +(TRICK_SPREAD / 2);
             tx = TRICK_CX + sub_offset - CARD_W / 2;
