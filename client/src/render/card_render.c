@@ -90,7 +90,8 @@ void card_draw_back(SDL_Renderer *r, int x, int y)
     set_color(r, (SDL_Color){60, 80, 180, 255});
     draw_rounded_rect_border(r, rect, CARD_R);
 
-    /* Simple diagonal cross pattern */
+    /* Simple diagonal cross pattern — clipped to card bounds */
+    SDL_RenderSetClipRect(r, &rect);
     set_color(r, (SDL_Color){50, 70, 160, 255});
     for (int i = -CARD_H; i < CARD_W; i += 8) {
         SDL_RenderDrawLine(r,
@@ -100,6 +101,7 @@ void card_draw_back(SDL_Renderer *r, int x, int y)
             x + i + CARD_H, y,
             x + i,          y + CARD_H);
     }
+    SDL_RenderSetClipRect(r, NULL);
 
     /* Re-draw inner border on top of pattern */
     set_color(r, (SDL_Color){200, 210, 240, 180});

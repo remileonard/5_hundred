@@ -89,18 +89,27 @@ static Button s_bid[BID_ROWS][BID_COLS];
 static Button s_bid_misere;
 static Button s_bid_open_misere;
 static char   s_bid_labels[BID_ROWS][BID_COLS][8];
+static SDL_Rect s_bid_panel_rect;
 
-static bool s_action_btns_init = false;
 static const char *SUIT_LABELS[5] = { "\u2660", "\u2663", "\u2666", "\u2665", "NT" };
 
-static void init_action_buttons(void)
+static void init_action_buttons(App *app)
 {
-    if (s_action_btns_init) return;
-    s_action_btns_init = true;
-
     int grid_w = BID_COLS * (BID_BTN_W + BID_GAP) - BID_GAP;
-    int grid_x = WINDOW_W / 2 - grid_w / 2;
-    int grid_y = ACTION_PANEL_Y + 30;
+    int grid_x, grid_y;
+
+    if (app->gs.num_players == 2) {
+        /* 2-player: place bid panel on the right side so the hand and
+         * tableau remain fully visible in the centre of the screen. */
+        grid_x = WINDOW_W - 436 + 55;  /* right-aligned, symmetric 55 px padding */
+        grid_y = 140;
+        s_bid_panel_rect = (SDL_Rect){ WINDOW_W - 436, grid_y - 36, 436, 260 };
+    } else {
+        /* 4-player (and default): centred at the bottom */
+        grid_x = WINDOW_W / 2 - grid_w / 2;
+        grid_y = ACTION_PANEL_Y + 30;
+        s_bid_panel_rect = (SDL_Rect){ WINDOW_W/2 - 218, ACTION_PANEL_Y - 6, 436, 260 };
+    }
 
     for (int row = 0; row < BID_ROWS; row++) {
         for (int col = 0; col < BID_COLS; col++) {
@@ -569,15 +578,14 @@ static void draw_info_bar(App *app)
 /* Bid panel */
 static void draw_bid_panel(App *app)
 {
-    init_action_buttons();
+    init_action_buttons(app);
     ClientGameState *gs = &app->gs;
     int cv = contract_value(gs);
     SDL_Renderer *r = app->renderer;
 
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(r, 10, 14, 30, 210);
-    SDL_Rect panel = {WINDOW_W/2 - 218, ACTION_PANEL_Y - 6, 436, 260};
-    SDL_RenderFillRect(r, &panel);
+    SDL_RenderFillRect(r, &s_bid_panel_rect);
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
 
     for (int row = 0; row < BID_ROWS; row++) {
@@ -778,7 +786,7 @@ static int kitty_card_hit(ClientGameState *gs, int mx, int my)
 void screen_table_handle_event(App *app, SDL_Event *e)
 {
     ClientGameState *gs = &app->gs;
-    init_action_buttons();
+    init_action_buttons(app);
 
     if (e->type == SDL_MOUSEMOTION) {
         int mx = e->motion.x, my = e->motion.y;
@@ -937,7 +945,7 @@ void screen_table_render(App *app)
 {
     SDL_Renderer *r = app->renderer;
     ClientGameState *gs = &app->gs;
-    init_action_buttons();
+    init_action_buttons(app);
 
     SDL_SetRenderDrawColor(r, COL_TABLE.r, COL_TABLE.g, COL_TABLE.b, 255);
     SDL_RenderClear(r);
@@ -983,6 +991,8 @@ void screen_table_render(App *app)
     /* Phase-specific bottom area */
     switch (gs->phase) {
     case PHASE_BIDDING:
+        if (gs->num_players == 2)
+            draw_tableau(app, gs->local_seat, TABLEAU_LOCAL_Y, true);
         draw_local_hand(app);
         draw_bid_history(app);
         if (gs->to_act == gs->local_seat) draw_bid_panel(app);
