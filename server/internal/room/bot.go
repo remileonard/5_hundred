@@ -123,7 +123,7 @@ func botKitty(g *game.Game, seat int, rng *rand.Rand) error {
 	return g.Discard(seat, hand[:3])
 }
 
-// botChooseHand randomly picks a hand type (0=hand or 1=tableau) for the 2-player variant.
+// botChooseHand randomly picks a hand type (0=private hand or 1=tableau) for the 2-player variant.
 func botChooseHand(g *game.Game, seat int, rng *rand.Rand) error {
 	return g.ChooseHand(seat, rng.Intn(2))
 }

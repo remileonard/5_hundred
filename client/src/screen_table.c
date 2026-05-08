@@ -85,6 +85,7 @@ static Button btn_pass;
 static Button btn_nouvelle   = { {WINDOW_W/2-100, WINDOW_H/2+60, 200, 44},
                                   "Nouvelle partie",         false };
 /* 2-player choose-hand buttons */
+/* \u25b6 = ▶ (play arrow) */
 static Button btn_choose_hand = { {WINDOW_W/2-130, WINDOW_H/2+10, 120, 44},
                                    "Ma main \u25b6",          false };
 static Button btn_choose_tab  = { {WINDOW_W/2+10,  WINDOW_H/2+10, 130, 44},
