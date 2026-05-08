@@ -220,6 +220,8 @@ func (h *Handler) handleGamePlay(c *ws.Client, msg protocol.Msg) {
 		return
 	}
 	card := game.Card{Rank: game.Rank(p.Card.Rank), Suit: game.Suit(p.Card.Suit)}
+	log.Printf("[HANDLER-PLAY] player=%q seat=%d card=%s phase=%v trick_step=%d",
+		c.Name, seat, card.String(), g.Phase, len(g.Current.Cards))
 	if err := g.PlayCard(seat, card); err != nil {
 		sendError(c, err.Error())
 		return

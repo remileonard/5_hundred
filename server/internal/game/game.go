@@ -2,7 +2,9 @@ package game
 
 import (
 	"errors"
+	"log"
 	"math/rand"
+	"strings"
 )
 
 // Phase represents the current stage of the game.
@@ -270,8 +272,20 @@ func (g *Game) PlayCard(playerIdx int, c Card) error {
 		return errors.New("not your turn to play")
 	}
 
+	// Log available cards before validation.
+	available := g.AvailableCards(playerIdx)
+	avail := make([]string, len(available))
+	for i, a := range available {
+		avail[i] = a.String()
+	}
+	step := len(g.Current.Cards)
+	log.Printf("[PLAY] seat=%d card=%s step=%d handType=%d forcedSrc=%d available=[%s]",
+		playerIdx, c.String(), step, g.TwoPlayerHandType, g.TwoPlayerForcedSource,
+		strings.Join(avail, " "))
+
 	// Validate the card is legally playable.
 	if err := g.validatePlay(playerIdx, c); err != nil {
+		log.Printf("[PLAY-ERR] seat=%d card=%s err=%v", playerIdx, c.String(), err)
 		return err
 	}
 
@@ -494,6 +508,12 @@ func (g *Game) completeCombinedTrick() {
 	g.Players[winner].Tricks++
 	g.Tricks = append(g.Tricks, t)
 
+	// Log the completed combined trick.
+	log.Printf("[COMBINED-TRICK-DONE] trick=%d leader=%d cards=[%s %s | %s %s] winOff=%d winner=seat%d (%s) src1=%d",
+		len(g.Tricks), g.Current.Leader,
+		cards[0].String(), cards[1].String(), cards[2].String(), cards[3].String(),
+		winOff, winner, cards[winOff].String(), g.TwoPlayerFirstSource)
+
 	// 10 combined tricks = game over.
 	if len(g.Tricks) == g.totalTricksForVariant() {
 		g.Phase = PhaseScoring
@@ -523,6 +543,15 @@ func (g *Game) completeTrick() {
 	winOffset := g.Current.winner(g.Trump)
 	winner := (g.Current.Leader + winOffset) % g.numPlayers()
 	g.Players[winner].Tricks++
+
+	// Log the completed trick.
+	cs := make([]string, len(g.Current.Cards))
+	for i, c := range g.Current.Cards {
+		cs[i] = c.String()
+	}
+	log.Printf("[TRICK-DONE] trick=%d leader=%d cards=[%s] winner=seat%d (%s)",
+		len(g.Tricks)+1, g.Current.Leader, strings.Join(cs, " "),
+		winner, g.Current.Cards[winOffset].String())
 
 	// Persist the completed trick for client display between turns.
 	saved := make([]Card, len(g.Current.Cards))

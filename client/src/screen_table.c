@@ -879,11 +879,20 @@ void screen_table_handle_event(App *app, SDL_Event *e)
                 if (gs->selected_card >= 100) {
                     /* Tableau card selected */
                     int col = gs->selected_card - 100;
+                    fprintf(stderr, "[CLIENT-BTN-PLAY] tableau col=%d card=%s%s\n",
+                            col,
+                            card_rank_str(p->tableau[5 + col].rank),
+                            card_suit_str(p->tableau[5 + col].suit));
                     net_send_play(p->tableau[5 + col]);
                     gs->selected_card = -1;
                     return;
                 } else if (gs->selected_card >= 0
                            && is_playable(gs, gs->selected_card)) {
+                    fprintf(stderr, "[CLIENT-BTN-PLAY] hand[%d]=%s%s step=%d handType=%d\n",
+                            gs->selected_card,
+                            card_rank_str(p->hand[gs->selected_card].rank),
+                            card_suit_str(p->hand[gs->selected_card].suit),
+                            gs->trick_count, gs->two_player_hand_type);
                     net_send_play(p->hand[gs->selected_card]);
                     gs->selected_card = -1;
                     return;
