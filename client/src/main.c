@@ -160,6 +160,8 @@ int main(int argc, char *argv[])
         TTF_Quit(); SDL_Quit();
         return 1;
     }
+    /* Keep the game centred and correctly sized when the window is resized. */
+    SDL_RenderSetLogicalSize(g_app.renderer, WINDOW_W, WINDOW_H);
 
     g_app.font_lg = load_font_any(36);
     g_app.font_md = load_font_any(20);

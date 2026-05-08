@@ -49,8 +49,15 @@
 #define BID_COLS    5
 #define BID_ROWS    5
 
+/* Bid panel dimensions (shared between centred and right-side layouts) */
+#define BID_PANEL_W       436   /* total panel width including padding */
+#define BID_PANEL_H       260   /* total panel height */
+#define BID_PANEL_PAD_X    55   /* horizontal padding between panel edge and grid */
+#define BID_PANEL_PAD_TOP  36   /* vertical space from panel top to grid top */
+#define BID_PANEL_MARGIN    6   /* gap between panel bottom and the hand row (4-player) */
+
 /* Bottom action panel Y */
-#define ACTION_PANEL_Y  (HAND_Y - 260)
+#define ACTION_PANEL_Y  (HAND_Y - BID_PANEL_H)
 
 /* ── Bid numeric value (mirrors server) ──────────────────────────────────────── */
 
@@ -89,18 +96,33 @@ static Button s_bid[BID_ROWS][BID_COLS];
 static Button s_bid_misere;
 static Button s_bid_open_misere;
 static char   s_bid_labels[BID_ROWS][BID_COLS][8];
+static SDL_Rect s_bid_panel_rect;
 
-static bool s_action_btns_init = false;
 static const char *SUIT_LABELS[5] = { "\u2660", "\u2663", "\u2666", "\u2665", "NT" };
 
-static void init_action_buttons(void)
+/* Recompute bid button positions every call.  The panel position depends on
+ * gs->num_players which can change between games, so we cannot cache once. */
+static void init_action_buttons(App *app)
 {
-    if (s_action_btns_init) return;
-    s_action_btns_init = true;
+    int grid_x, grid_y;
 
-    int grid_w = BID_COLS * (BID_BTN_W + BID_GAP) - BID_GAP;
-    int grid_x = WINDOW_W / 2 - grid_w / 2;
-    int grid_y = ACTION_PANEL_Y + 30;
+    if (app->gs.num_players == 2) {
+        /* 2-player: bid panel on the right side so hand+tableau remain
+         * visible in the centre.  Align the grid top with TABLEAU_OPP_Y so
+         * it sits beside the opponent cards without overlap. */
+        s_bid_panel_rect = (SDL_Rect){ WINDOW_W - BID_PANEL_W,
+                                       TABLEAU_OPP_Y - BID_PANEL_PAD_TOP,
+                                       BID_PANEL_W, BID_PANEL_H };
+        grid_x = s_bid_panel_rect.x + BID_PANEL_PAD_X;
+        grid_y = TABLEAU_OPP_Y;
+    } else {
+        /* 4-player (and default): centred at the bottom */
+        s_bid_panel_rect = (SDL_Rect){ WINDOW_W/2 - BID_PANEL_W/2,
+                                       ACTION_PANEL_Y - BID_PANEL_MARGIN,
+                                       BID_PANEL_W, BID_PANEL_H };
+        grid_x = s_bid_panel_rect.x + BID_PANEL_PAD_X;
+        grid_y = s_bid_panel_rect.y + BID_PANEL_PAD_TOP;
+    }
 
     for (int row = 0; row < BID_ROWS; row++) {
         for (int col = 0; col < BID_COLS; col++) {
@@ -160,10 +182,30 @@ static void draw_card_backs_v(SDL_Renderer *r, int cx, int cy, int n)
 
 static void draw_score(App *app)
 {
+    ClientGameState *gs = &app->gs;
     char buf[64];
     snprintf(buf, sizeof(buf), "\u00c9quipe A: %d   \u00c9quipe B: %d",
-             app->gs.scores[0], app->gs.scores[1]);
-    ui_text(app->renderer, app->font_sm, buf, WINDOW_W / 2 - 140, 8, COL_WHITE);
+             gs->scores[0], gs->scores[1]);
+    /* Top-right corner, away from opponent cards and the lobby button */
+    SDL_Rect r = {WINDOW_W - 280, 8, 272, 20};
+    ui_text_centered(app->renderer, app->font_sm, buf, r, COL_WHITE);
+
+    /* During play, show tricks won this round for each team */
+    if (gs->phase == PHASE_PLAYING && gs->num_players > 0) {
+        int tricks_a, tricks_b;
+        if (gs->num_players == 4) {
+            tricks_a = gs->players[0].tricks_won + gs->players[2].tricks_won;
+            tricks_b = gs->players[1].tricks_won + gs->players[3].tricks_won;
+        } else {
+            tricks_a = gs->players[0].tricks_won;
+            tricks_b = gs->players[1].tricks_won;
+        }
+        char tw[64];
+        snprintf(tw, sizeof(tw), "Plis A: %d   Plis B: %d", tricks_a, tricks_b);
+        SDL_Rect tr = {WINDOW_W - 280, 28, 272, 20};
+        ui_text_centered(app->renderer, app->font_sm, tw, tr,
+                         (SDL_Color){180, 200, 230, 255});
+    }
 }
 
 static void draw_trick(App *app)
@@ -544,16 +586,6 @@ static void draw_info_bar(App *app)
         SDL_Rect r = {0, 30, WINDOW_W, 26};
         ui_text_centered(app->renderer, app->font_sm, buf, r, col);
     }
-    if (gs->phase == PHASE_PLAYING && gs->num_players == 2) {
-        /* Show tricks won for each player. */
-        char tw[64];
-        snprintf(tw, sizeof(tw), "Plis : %s %d  \u2013  %s %d",
-                 gs->players[0].name, gs->players[0].tricks_won,
-                 gs->players[1].name, gs->players[1].tricks_won);
-        SDL_Rect tr2 = {0, 56, WINDOW_W, 20};
-        ui_text_centered(app->renderer, app->font_sm, tw, tr2,
-                         (SDL_Color){180, 200, 230, 255});
-    }
     if (gs->phase == PHASE_KITTY) {
         bool mine = (gs->contractor == gs->local_seat);
         const char *ktxt = mine
@@ -569,15 +601,14 @@ static void draw_info_bar(App *app)
 /* Bid panel */
 static void draw_bid_panel(App *app)
 {
-    init_action_buttons();
+    init_action_buttons(app);
     ClientGameState *gs = &app->gs;
     int cv = contract_value(gs);
     SDL_Renderer *r = app->renderer;
 
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(r, 10, 14, 30, 210);
-    SDL_Rect panel = {WINDOW_W/2 - 218, ACTION_PANEL_Y - 6, 436, 260};
-    SDL_RenderFillRect(r, &panel);
+    SDL_RenderFillRect(r, &s_bid_panel_rect);
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
 
     for (int row = 0; row < BID_ROWS; row++) {
@@ -778,7 +809,7 @@ static int kitty_card_hit(ClientGameState *gs, int mx, int my)
 void screen_table_handle_event(App *app, SDL_Event *e)
 {
     ClientGameState *gs = &app->gs;
-    init_action_buttons();
+    init_action_buttons(app);
 
     if (e->type == SDL_MOUSEMOTION) {
         int mx = e->motion.x, my = e->motion.y;
@@ -937,7 +968,7 @@ void screen_table_render(App *app)
 {
     SDL_Renderer *r = app->renderer;
     ClientGameState *gs = &app->gs;
-    init_action_buttons();
+    init_action_buttons(app);
 
     SDL_SetRenderDrawColor(r, COL_TABLE.r, COL_TABLE.g, COL_TABLE.b, 255);
     SDL_RenderClear(r);
@@ -983,6 +1014,8 @@ void screen_table_render(App *app)
     /* Phase-specific bottom area */
     switch (gs->phase) {
     case PHASE_BIDDING:
+        if (gs->num_players == 2)
+            draw_tableau(app, gs->local_seat, TABLEAU_LOCAL_Y, true);
         draw_local_hand(app);
         draw_bid_history(app);
         if (gs->to_act == gs->local_seat) draw_bid_panel(app);
