@@ -113,10 +113,11 @@ static void init_action_buttons(App *app)
 
     if (app->gs.num_players == 2) {
         /* 2-player: panel centred horizontally and vertically in the gap
-         * between the two tableau rows.  A smaller top padding (BID_PANEL_2P_PAD_TOP)
-         * makes the panel height (230 px) fit within the gap (246 px), leaving
-         * ~8 px of clear space above and below each tableau row. */
-        int panel_h = BID_PANEL_2P_PAD_TOP + BID_ROWS * (BID_BTN_H + BID_GAP) + BID_BTN_H;
+         * between the two tableau rows.  Equal top/bottom padding
+         * (BID_PANEL_2P_PAD_TOP each side) keeps the black border symmetric.
+         * panel_h = 6 + 224 + 6 = 236 px, fits in the 246 px gap with 5 px
+         * clearance above and below each tableau row. */
+        int panel_h = 2 * BID_PANEL_2P_PAD_TOP + BID_ROWS * (BID_BTN_H + BID_GAP) + BID_BTN_H;
         int panel_y = (TABLEAU_OPP_Y + CARD_H + TABLEAU_LOCAL_Y) / 2 - panel_h / 2;
         s_bid_panel_rect = (SDL_Rect){ WINDOW_W / 2 - BID_PANEL_W / 2,
                                        panel_y,
