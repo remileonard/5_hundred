@@ -415,7 +415,8 @@ func (g *Game) AvailableCards(playerIdx int) []Card {
 		case 0:
 			if g.TwoPlayerForcedSource >= 0 {
 				// Subsequent tricks: leader is forced to start from the winning source.
-				return g.cardsFromSource(playerIdx, g.TwoPlayerForcedSource)
+				// The Joker is always playable regardless of the forced source.
+				return appendJokerFromHand(p, g.cardsFromSource(playerIdx, g.TwoPlayerForcedSource))
 			}
 			// First trick: leader may play from hand or face-up tableau (free choice).
 			cards := make([]Card, len(p.Hand))
@@ -428,15 +429,30 @@ func (g *Game) AvailableCards(playerIdx int) []Card {
 			return cards
 		case 1:
 			// Follower in sub-play 1: same source as the leader's card.
-			return g.cardsFromSource(playerIdx, g.TwoPlayerFirstSource)
+			// The Joker is always playable regardless of source constraint.
+			return appendJokerFromHand(p, g.cardsFromSource(playerIdx, g.TwoPlayerFirstSource))
 		case 2, 3:
 			// Sub-play 2 (leader at step 2, follower at step 3): other source.
-			return g.cardsFromSource(playerIdx, 1-g.TwoPlayerFirstSource)
+			// The Joker is always playable regardless of source constraint.
+			return appendJokerFromHand(p, g.cardsFromSource(playerIdx, 1-g.TwoPlayerFirstSource))
 		}
 		return nil
 	}
 	cards := make([]Card, len(p.Hand))
 	copy(cards, p.Hand)
+	return cards
+}
+
+// appendJokerFromHand appends the Joker to cards if the player holds it in
+// their hand but it is not already present in cards. In 500 the Joker is
+// always playable regardless of source restrictions.
+func appendJokerFromHand(p *PlayerState, cards []Card) []Card {
+	if findCard(cards, TheJoker) >= 0 {
+		return cards
+	}
+	if findCard(p.Hand, TheJoker) >= 0 {
+		return append(cards, TheJoker)
+	}
 	return cards
 }
 
