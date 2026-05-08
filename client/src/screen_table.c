@@ -704,8 +704,6 @@ void screen_table_handle_event(App *app, SDL_Event *e)
             }
         }
 
-        /* 2-player: choose hand type (PHASE_CHOOSE_HAND) */
-
         /* Playing: select + play */
         if (gs->phase == PHASE_PLAYING) {
             PlayerSlot *p = &gs->players[gs->local_seat];
