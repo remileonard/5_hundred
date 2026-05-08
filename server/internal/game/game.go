@@ -76,8 +76,13 @@ type Game struct {
 	// Set when the leader plays their first card.
 	TwoPlayerFirstSource int
 	// TwoPlayerSecondLeader is the player who leads the second sub-play of the
-	// current combined trick. Set to the winner of the first sub-play.
+	// current combined trick. Always the same as the combined-trick leader.
 	TwoPlayerSecondLeader int
+	// TwoPlayerForcedSource is the source the next combined-trick leader must
+	// start with. -1 means free choice (first trick only). After each completed
+	// combined trick it is set to the source used in sub-play 2
+	// (= 1 - TwoPlayerFirstSource), because that is the source the winner won with.
+	TwoPlayerForcedSource int
 
 	// LastCompletedTrick holds the cards of the most recently completed trick
 	// (or combined trick in 2-player). Cleared at game start; overwritten after
@@ -104,7 +109,7 @@ func New(v Variant, rng *rand.Rand) *Game {
 		}
 	}
 
-	return &Game{
+	g := &Game{
 		Variant: v,
 		Phase:   PhaseBidding,
 		Players: players,
@@ -112,6 +117,10 @@ func New(v Variant, rng *rand.Rand) *Game {
 		Bids:    make([]Bid, numPlayers),
 		ToAct:   0,
 	}
+	if v == TwoPlayer {
+		g.TwoPlayerForcedSource = -1 // first trick: leader chooses freely
+	}
+	return g
 }
 
 // team returns the team for a player index.
@@ -288,11 +297,10 @@ func (g *Game) PlayCard(playerIdx int, c Card) error {
 			g.ToAct = 1 - playerIdx
 		case 2:
 			// Follower has responded to the first sub-play.
-			// Determine first-sub-play winner; they lead the second sub-play.
-			w1Off := twoCardWinner(g.Current.Cards[0], g.Current.Cards[1], g.Trump)
-			g.TwoPlayerSecondLeader = (g.Current.Leader + w1Off) % 2
-			g.TwoPlayerHandType = g.TwoPlayerFirstSource // keep same source
-			g.ToAct = g.TwoPlayerSecondLeader
+			// The same combined-trick leader leads the second sub-play from the other source.
+			g.TwoPlayerSecondLeader = g.Current.Leader
+			g.TwoPlayerHandType = 1 - g.TwoPlayerFirstSource // switch to other source
+			g.ToAct = g.Current.Leader
 		case 3:
 			// Second-sub-play leader has played; follower responds.
 			g.ToAct = 1 - playerIdx
@@ -361,11 +369,13 @@ func (g *Game) validatePlay(playerIdx int, c Card) error {
 //
 // In the 2-player variant each combined trick has four plays:
 //
-//	Step 0 (n=0): leader plays their first card — both hand and face-up tableau cards
-//	              are available; the choice of source is implicit in which card is played.
-//	Step 1 (n=1): follower responds to the first sub-play — same source as step 0.
-//	Step 2 (n=2): winner of first sub-play leads the second sub-play — same source as sub-play 1.
-//	Step 3 (n=3): follower responds to the second sub-play — same source.
+//	Step 0 (n=0): for the very first combined trick, the leader may play from hand or
+//	              tableau (free choice). For all subsequent tricks the leader is forced
+//	              to start from TwoPlayerForcedSource (the source that won sub-play 2
+//	              of the previous trick).
+//	Step 1 (n=1): follower responds to sub-play 1 — same source as step 0.
+//	Step 2 (n=2): same leader leads sub-play 2 — the OTHER source.
+//	Step 3 (n=3): follower responds to sub-play 2 — same other source.
 //
 // Tableau layout (2-player): Tableau[i] = face-down of column i (i=0..4),
 // Tableau[5+i] = face-up of column i.  Card{} is the empty-slot sentinel.
@@ -375,7 +385,11 @@ func (g *Game) AvailableCards(playerIdx int) []Card {
 		n := len(g.Current.Cards)
 		switch n {
 		case 0:
-			// Leader: both hand and face-up tableau cards are available.
+			if g.TwoPlayerForcedSource >= 0 {
+				// Subsequent tricks: leader is forced to start from the winning source.
+				return g.cardsFromSource(playerIdx, g.TwoPlayerForcedSource)
+			}
+			// First trick: leader may play from hand or face-up tableau (free choice).
 			cards := make([]Card, len(p.Hand))
 			copy(cards, p.Hand)
 			for i := 0; i < 5; i++ {
@@ -385,11 +399,11 @@ func (g *Game) AvailableCards(playerIdx int) []Card {
 			}
 			return cards
 		case 1:
-			// Follower in first sub-play: same source as the leader's card.
+			// Follower in sub-play 1: same source as the leader's card.
 			return g.cardsFromSource(playerIdx, g.TwoPlayerFirstSource)
 		case 2, 3:
-			// Second sub-play (leader at step 2, follower at step 3): same source as sub-play 1.
-			return g.cardsFromSource(playerIdx, g.TwoPlayerFirstSource)
+			// Sub-play 2 (leader at step 2, follower at step 3): other source.
+			return g.cardsFromSource(playerIdx, 1-g.TwoPlayerFirstSource)
 		}
 		return nil
 	}
@@ -451,13 +465,14 @@ func twoCardWinner(c0, c1 Card, trump Suit) int {
 // completeCombinedTrick resolves a finished 2-player combined trick.
 //
 // Each combined trick consists of four cards — two sub-plays of two cards each.
-// Sub-play 1 (Cards[0:2]): first source chosen by the combined-trick leader.
-// Sub-play 2 (Cards[2:4]): other source, led by the winner of sub-play 1.
+// Sub-play 1 (Cards[0:2]): source chosen by the combined-trick leader; led by that leader.
+// Sub-play 2 (Cards[2:4]): the OTHER source; also led by the same combined-trick leader.
 //
 // Both sub-play winners receive a trick credit, and each sub-play is stored
 // as a separate two-card Trick entry so that the total across a full game
 // remains 20 (10 combined tricks × 2 sub-plays).
-// The winner of sub-play 2 leads the next combined trick.
+// The winner of sub-play 2 leads the next combined trick, and must start from
+// the source used in sub-play 2 (= the other source from sub-play 1).
 func (g *Game) completeCombinedTrick() {
 	cards := g.Current.Cards
 
@@ -475,7 +490,7 @@ func (g *Game) completeCombinedTrick() {
 	g.Players[w1].Tricks++
 	g.Tricks = append(g.Tricks, t1)
 
-	// Sub-play 2.
+	// Sub-play 2: always led by the same combined-trick leader (TwoPlayerSecondLeader == Current.Leader).
 	cards2 := []Card{cards[2], cards[3]}
 	t2 := Trick{Leader: g.TwoPlayerSecondLeader, Cards: cards2}
 	w2Off := twoCardWinner(cards[2], cards[3], g.Trump)
@@ -491,8 +506,11 @@ func (g *Game) completeCombinedTrick() {
 		return
 	}
 
-	// Winner of sub-play 2 leads the next combined trick.
-	g.TwoPlayerHandType = 0
+	// The source used in sub-play 2 (= the other source from sub-play 1) becomes
+	// the forced starting source for the next combined trick.
+	nextSource := 1 - g.TwoPlayerFirstSource
+	g.TwoPlayerForcedSource = nextSource
+	g.TwoPlayerHandType = nextSource
 	g.TwoPlayerFirstSource = 0
 	g.TwoPlayerSecondLeader = 0
 	g.Current = Trick{Leader: w2}

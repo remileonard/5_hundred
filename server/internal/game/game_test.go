@@ -452,10 +452,10 @@ func TestGame_TwoPlayer_DealAndPlay(t *testing.T) {
 	}
 
 	// Play through the full game.  Each combined trick has 4 plays:
-	//   step 0 (n=0): leader plays any card (hand or tableau) — sets the source for the trick
+	//   step 0 (n=0): leader plays from forced source (or any source on the first trick)
 	//   step 1 (n=1): follower plays same source, following suit if possible
-	//   step 2 (n=2): winner of sub-play 1 leads same source
-	//   step 3 (n=3): other player follows suit if possible from same source
+	//   step 2 (n=2): SAME leader plays from the other source
+	//   step 3 (n=3): other player follows suit if possible from the other source
 	for g.Phase == PhasePlaying {
 		p := g.ToAct
 		available := g.AvailableCards(p)
@@ -497,11 +497,12 @@ func TestGame_TwoPlayer_DealAndPlay(t *testing.T) {
 
 // TestGame_TwoPlayer_CombinedTrickStructure verifies that:
 //   - After Discard, the game is immediately in PhasePlaying (no PhaseChooseHand).
-//   - The leader at step 0 can play from either hand or tableau.
+//   - The leader at step 0 can play from either hand or tableau (first trick: free choice).
 //   - At step 1, the follower is restricted to the same source as the leader.
-//   - At step 2, the winner of sub-play 1 leads from the SAME source as sub-play 1.
-//   - At step 3, the follower responds from the same source.
+//   - At step 2, the SAME leader leads from the OTHER source (not winner of sub-play 1).
+//   - At step 3, the follower responds from the other source.
 //   - Completing 4 plays advances len(Tricks) by 2 (two sub-trick entries).
+//   - After the trick, TwoPlayerForcedSource equals the source used in sub-play 2.
 func TestGame_TwoPlayer_CombinedTrickStructure(t *testing.T) {
 	g := newGame2(5)
 	playBiddingPhase(t, g)
@@ -550,17 +551,26 @@ func TestGame_TwoPlayer_CombinedTrickStructure(t *testing.T) {
 	if err := g.PlayCard(follower, avail1[0]); err != nil {
 		t.Fatalf("step 1 play failed: %v", err)
 	}
-	if g.TwoPlayerHandType != 0 {
-		t.Errorf("after sub-play 1, expected TwoPlayerHandType=0 (hand, same source), got %d", g.TwoPlayerHandType)
+	if g.TwoPlayerHandType != 1 {
+		t.Errorf("after sub-play 1, expected TwoPlayerHandType=1 (tableau, other source), got %d", g.TwoPlayerHandType)
 	}
 
-	// Step 2: TwoPlayerSecondLeader leads from hand (same source as sub-play 1).
+	// Step 2: the SAME leader (not sub-play 1's winner) leads from the other source (tableau).
 	leader2 := g.TwoPlayerSecondLeader
+	if leader2 != leader {
+		t.Errorf("step 2: expected same leader %d, got %d", leader, leader2)
+	}
 	avail2 := g.AvailableCards(leader2)
 	for _, c := range avail2 {
-		found := findCard(g.Players[leader2].Hand, c) >= 0
+		found := false
+		for i := 0; i < 5; i++ {
+			if g.Players[leader2].Tableau[5+i] == c {
+				found = true
+				break
+			}
+		}
 		if !found {
-			t.Errorf("step 2: non-hand card %v in available cards", c)
+			t.Errorf("step 2: non-tableau card %v in available cards", c)
 		}
 	}
 	if len(avail2) == 0 {
@@ -570,13 +580,19 @@ func TestGame_TwoPlayer_CombinedTrickStructure(t *testing.T) {
 		t.Fatalf("step 2 play failed: %v", err)
 	}
 
-	// Step 3: follower responds from hand (same source).
+	// Step 3: follower responds from the other source (tableau, since sub-play 1 was hand).
 	follower2 := 1 - leader2
 	avail3 := g.AvailableCards(follower2)
 	for _, c := range avail3 {
-		found := findCard(g.Players[follower2].Hand, c) >= 0
+		found := false
+		for i := 0; i < 5; i++ {
+			if g.Players[follower2].Tableau[5+i] == c {
+				found = true
+				break
+			}
+		}
 		if !found {
-			t.Errorf("step 3: non-hand card %v in available cards", c)
+			t.Errorf("step 3: non-tableau card %v in available cards", c)
 		}
 	}
 	if len(avail3) == 0 {
@@ -605,6 +621,11 @@ func TestGame_TwoPlayer_CombinedTrickStructure(t *testing.T) {
 	total := g.Players[0].Tricks + g.Players[1].Tricks
 	if total != 2 {
 		t.Errorf("after 1 combined trick, expected 2 trick credits total, got %d", total)
+	}
+	// After trick 1 (sub-play 1 was hand=0, sub-play 2 was tableau=1),
+	// the forced source for the next trick must be tableau (1).
+	if g.TwoPlayerForcedSource != 1 {
+		t.Errorf("after trick 1, expected TwoPlayerForcedSource=1 (tableau), got %d", g.TwoPlayerForcedSource)
 	}
 }
 
