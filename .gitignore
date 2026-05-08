@@ -53,3 +53,23 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# ── 5 Hundred specific ────────────────────────────────────────────────────────
+build/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+_deps/
+
+# Go binaries
+server/five_hundred_server
+*.test
+
+# macOS
+.DS_Store
+
+# Emscripten artefacts
+*.wasm
+*.js.map
