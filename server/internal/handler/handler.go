@@ -41,8 +41,6 @@ func (h *Handler) Handle(c *ws.Client, msg protocol.Msg) {
 		h.handleGameDiscard(c, msg)
 	case protocol.TypeGamePlay:
 		h.handleGamePlay(c, msg)
-	case protocol.TypeGameChooseHand:
-		h.handleGameChooseHand(c, msg)
 	default:
 		c.Send(protocol.TypeError, protocol.ErrorPayload{
 			Message: fmt.Sprintf("unknown message type: %s", msg.Type),
@@ -239,25 +237,6 @@ func (h *Handler) handleGamePlay(c *ws.Client, msg protocol.Msg) {
 			Message: fmt.Sprintf("Partie terminée — Équipe A: %d  Équipe B: %d", g.Scores[0], g.Scores[1]),
 		})
 	}
-}
-
-// ── game.choose_hand ──────────────────────────────────────────────────────────
-
-func (h *Handler) handleGameChooseHand(c *ws.Client, msg protocol.Msg) {
-	r, g, seat, ok := h.roomAndGame(c)
-	if !ok {
-		return
-	}
-	var p protocol.ChooseHandPayload
-	if err := protocol.DecodePayload(msg, &p); err != nil {
-		sendError(c, "invalid game.choose_hand payload")
-		return
-	}
-	if err := g.ChooseHand(seat, p.HandType); err != nil {
-		sendError(c, err.Error())
-		return
-	}
-	room.BroadcastGameState(g, r)
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

@@ -70,8 +70,6 @@ func phaseStr(p game.Phase) string {
 		return "bidding"
 	case game.PhaseKitty:
 		return "kitty"
-	case game.PhaseChooseHand:
-		return "choose_hand"
 	case game.PhasePlaying:
 		return "playing"
 	case game.PhaseScoring:

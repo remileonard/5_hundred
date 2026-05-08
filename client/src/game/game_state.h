@@ -13,7 +13,6 @@
 typedef enum {
     PHASE_BIDDING = 0,
     PHASE_KITTY,
-    PHASE_CHOOSE_HAND, /* 2-player only: contractor picks hand type */
     PHASE_PLAYING,
     PHASE_SCORING,
     PHASE_END,
@@ -64,7 +63,9 @@ typedef struct {
     int  selected_card;      /* index in local hand, -1 = none */
     int  trump_suit;         /* Suit value, SUIT_NONE = no-trumps */
 
-    /* 2-player variant: 0 = private hand active, 1 = tableau active */
+    /* 2-player variant: which source is currently active within the combined trick.
+     * 0 = private hand, 1 = tableau.
+     * When trick_count == 0 (leader's first play), both sources are available. */
     int  two_player_hand_type;
 
     /* UI feedback */

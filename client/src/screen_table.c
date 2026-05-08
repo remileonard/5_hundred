@@ -84,12 +84,6 @@ static Button btn_discard    = { {WINDOW_W/2-70, HAND_Y-52, 140, 40},
 static Button btn_pass;
 static Button btn_nouvelle   = { {WINDOW_W/2-100, WINDOW_H/2+60, 200, 44},
                                   "Nouvelle partie",         false };
-/* 2-player choose-hand buttons */
-/* \u25b6 = ▶ (play arrow) */
-static Button btn_choose_hand = { {WINDOW_W/2-130, WINDOW_H/2+10, 120, 44},
-                                   "Ma main \u25b6",          false };
-static Button btn_choose_tab  = { {WINDOW_W/2+10,  WINDOW_H/2+10, 130, 44},
-                                   "Tableau \u25b6",           false };
 
 static Button s_bid[BID_ROWS][BID_COLS];
 static Button s_bid_misere;
@@ -201,13 +195,17 @@ static int card_eff_suit(Card c, int trump)
 
 /* Determine if a card in the local hand is legally playable right now.
  * Mirrors the server follow-suit rule on the client for visual feedback.
- * In 2-player mode the active hand type (two_player_hand_type) determines
- * which source is used: 0 = private hand only, 1 = tableau only. */
+ *
+ * 2-player combined-trick steps:
+ *   step 0 (trick_count==0): leader freely plays from any source → always true.
+ *   step 1 (trick_count==1, two_player_hand_type==0): hand follower, must follow suit.
+ *   step 2 (trick_count==2, two_player_hand_type==1): tableau sub-play leader → false.
+ *   step 3 (trick_count==3, two_player_hand_type==1): tableau sub-play follower → false. */
 static bool is_playable(ClientGameState *gs, int card_idx)
 {
     if (gs->phase != PHASE_PLAYING) return true;
     if (gs->to_act != gs->local_seat) return false;
-    /* In 2-player tableau sub-game (type=1), hand cards are not playable. */
+    /* In 2-player, when the tableau is the active source, hand cards are not playable. */
     if (gs->num_players == 2 && gs->two_player_hand_type == 1) return false;
     if (gs->trick_count == 0) return true;  /* leading — any card is fine */
 
@@ -392,16 +390,6 @@ static void draw_info_bar(App *app)
         SDL_Rect r = {0, 30, WINDOW_W, 26};
         ui_text_centered(app->renderer, app->font_sm, ktxt, r, col);
     }
-    if (gs->phase == PHASE_CHOOSE_HAND) {
-        bool mine = (gs->contractor == gs->local_seat);
-        const char *ctxt = mine
-            ? "Choisissez votre main pour ce tour"
-            : "Le preneur choisit sa main\u2026";
-        SDL_Color col = mine ? (SDL_Color){220, 180, 60, 255}
-                             : (SDL_Color){160, 170, 200, 255};
-        SDL_Rect r = {0, 30, WINDOW_W, 26};
-        ui_text_centered(app->renderer, app->font_sm, ctxt, r, col);
-    }
 }
 
 /* Bid panel */
@@ -487,36 +475,6 @@ static void draw_bid_history(App *app)
 }
 
 /* Choose-hand panel (2-player only, PhaseChooseHand) */
-static void draw_choose_hand_panel(App *app)
-{
-    SDL_Renderer *r = app->renderer;
-    ClientGameState *gs = &app->gs;
-
-    SDL_Rect panel = {WINDOW_W/2 - 170, WINDOW_H/2 - 50, 340, 120};
-    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(r, 10, 14, 30, 210);
-    SDL_RenderFillRect(r, &panel);
-    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
-    SDL_SetRenderDrawColor(r, 100, 100, 150, 255);
-    SDL_RenderDrawRect(r, &panel);
-
-    SDL_Rect title_r = {panel.x, panel.y + 8, panel.w, 24};
-    ui_text_centered(r, app->font_sm, "Choisissez avec quoi jouer ce tour :", title_r,
-                     (SDL_Color){220, 200, 80, 255});
-
-    bool mine = (gs->contractor == gs->local_seat);
-    if (mine) {
-        ui_button_draw(r, app->font_sm, &btn_choose_hand);
-        ui_button_draw(r, app->font_sm, &btn_choose_tab);
-    } else {
-        SDL_Rect wait_r = {panel.x, panel.y + 44, panel.w, 24};
-        const char *name = gs->players[gs->contractor].name;
-        char buf[64];
-        snprintf(buf, sizeof(buf), "En attente du choix de %s\u2026", name);
-        ui_text_centered(r, app->font_sm, buf, wait_r, (SDL_Color){160, 170, 200, 255});
-    }
-}
-
 /* Discard button */
 static void draw_discard_button(App *app)
 {
@@ -662,10 +620,6 @@ void screen_table_handle_event(App *app, SDL_Event *e)
             ui_button_update(&s_bid_open_misere, mx, my);
             ui_button_update(&btn_pass,          mx, my);
         }
-        if (gs->phase == PHASE_CHOOSE_HAND && gs->contractor == gs->local_seat) {
-            ui_button_update(&btn_choose_hand, mx, my);
-            ui_button_update(&btn_choose_tab,  mx, my);
-        }
     }
 
     if (e->type == SDL_MOUSEBUTTONDOWN && e->button.button == SDL_BUTTON_LEFT) {
@@ -751,23 +705,13 @@ void screen_table_handle_event(App *app, SDL_Event *e)
         }
 
         /* 2-player: choose hand type (PHASE_CHOOSE_HAND) */
-        if (gs->phase == PHASE_CHOOSE_HAND && gs->contractor == gs->local_seat) {
-            if (ui_button_hit(&btn_choose_hand, mx, my)) {
-                net_send_choose_hand(0); /* private hand */
-                return;
-            }
-            if (ui_button_hit(&btn_choose_tab, mx, my)) {
-                net_send_choose_hand(1); /* tableau */
-                return;
-            }
-        }
 
         /* Playing: select + play */
         if (gs->phase == PHASE_PLAYING) {
             PlayerSlot *p = &gs->players[gs->local_seat];
             if (gs->to_act == gs->local_seat && ui_button_hit(&btn_play, mx, my)) {
                 if (gs->selected_card >= 100) {
-                    /* Tableau card selected (2-player tableau sub-game) */
+                    /* Tableau card selected */
                     int col = gs->selected_card - 100;
                     net_send_play(p->tableau[5 + col]);
                     gs->selected_card = -1;
@@ -779,16 +723,21 @@ void screen_table_handle_event(App *app, SDL_Event *e)
                     return;
                 }
             }
-            /* Hit-test tableau (2-player local, only when tableau sub-game active) */
-            if (gs->num_players == 2 && gs->two_player_hand_type == 1) {
+            /* Hit-test tableau (2-player, available when trick_count==0 or
+             * when the other source is active: two_player_hand_type==1) */
+            if (gs->num_players == 2
+                && (gs->trick_count == 0 || gs->two_player_hand_type == 1)) {
                 int tcol = local_tableau_hit(gs, mx, my);
                 if (tcol >= 0) {
                     gs->selected_card = (gs->selected_card == 100 + tcol) ? -1 : 100 + tcol;
                     return;
                 }
             }
-            /* Hand card click (only when hand sub-game active, or 4-player) */
-            if (gs->num_players != 2 || gs->two_player_hand_type == 0) {
+            /* Hand card click (2-player: available at trick_count==0 or when
+             * hand sub-play is active; always available in 4-player) */
+            if (gs->num_players != 2
+                || gs->trick_count == 0
+                || gs->two_player_hand_type == 0) {
                 int ci = hand_card_hit(gs, mx, my);
                 if (ci >= 0) {
                     gs->selected_card = (gs->selected_card == ci) ? -1 : ci;
@@ -862,12 +811,6 @@ void screen_table_render(App *app)
         } else {
             draw_local_hand(app);
         }
-        break;
-    case PHASE_CHOOSE_HAND:
-        draw_local_hand(app);
-        if (gs->num_players == 2)
-            draw_tableau(app, gs->local_seat, TABLEAU_LOCAL_Y, false);
-        draw_choose_hand_panel(app);
         break;
     case PHASE_PLAYING:
         draw_local_hand(app);

@@ -9,9 +9,8 @@ import (
 type Phase int
 
 const (
-	PhaseBidding    Phase = iota
-	PhaseKitty            // winner picks up kitty and discards
-	PhaseChooseHand       // 2-player only: contractor chooses which hand type to play first
+	PhaseBidding Phase = iota
+	PhaseKitty         // winner picks up kitty and discards
 	PhasePlaying
 	PhaseScoring
 	PhaseEnd
@@ -62,15 +61,23 @@ type Game struct {
 	Contract   Bid      // winning bid
 	Contractor int      // player index of the winning bidder
 	Trump      Suit     // NoSuit for NT/Misère
-	Tricks     []Trick  // completed tricks
+	Tricks     []Trick  // completed tricks (2-player: each combined trick stores 2 sub-trick entries)
 	Current    Trick    // trick in progress
 	ToAct      int      // index of the player who must act next
 	Scores     [2]int   // cumulative team scores (Team0, Team1)
 
-	// 2-player variant: which hand type is active in the current sub-game.
-	// 0 = private hand, 1 = tableau (open hand).
-	// The contractor sets this via ChooseHand. After 10 tricks it flips automatically.
+	// 2-player variant fields (only used during PhasePlaying in TwoPlayer variant).
+	// TwoPlayerHandType reflects which source is currently active:
+	//   0 = private hand, 1 = tableau (open hand).
+	// It is updated as each card is played within the combined trick.
 	TwoPlayerHandType int
+	// TwoPlayerFirstSource is the source chosen by the leader for the first
+	// sub-play of the current combined trick (0=hand, 1=tableau).
+	// Set when the leader plays their first card.
+	TwoPlayerFirstSource int
+	// TwoPlayerSecondLeader is the player who leads the second sub-play of the
+	// current combined trick. Set to the winner of the first sub-play.
+	TwoPlayerSecondLeader int
 }
 
 // New creates and deals a new Game. rng is used for shuffling.
@@ -228,33 +235,7 @@ func (g *Game) Discard(playerIdx int, cards []Card) error {
 	}
 	g.Players[playerIdx].Hand = hand
 
-	if g.Variant == TwoPlayer {
-		// 2-player: contractor must choose which hand type to play first.
-		g.Phase = PhaseChooseHand
-		g.ToAct = g.Contractor
-	} else {
-		g.Phase = PhasePlaying
-		g.ToAct = g.Contractor
-		g.Current = Trick{Leader: g.Contractor}
-	}
-	return nil
-}
-
-// ChooseHand is called by the contractor in the 2-player variant during
-// PhaseChooseHand to select which hand type to play first.
-// handType: 0 = private hand, 1 = tableau (open hand).
-// After 10 tricks the game will automatically switch to the other type.
-func (g *Game) ChooseHand(playerIdx int, handType int) error {
-	if g.Phase != PhaseChooseHand {
-		return errors.New("not in choose-hand phase")
-	}
-	if playerIdx != g.Contractor {
-		return errors.New("only the contractor can choose the hand type")
-	}
-	if handType != 0 && handType != 1 {
-		return errors.New("invalid hand type: must be 0 (hand) or 1 (tableau)")
-	}
-	g.TwoPlayerHandType = handType
+	// Transition to playing; contractor leads the first trick.
 	g.Phase = PhasePlaying
 	g.ToAct = g.Contractor
 	g.Current = Trick{Leader: g.Contractor}
@@ -277,6 +258,12 @@ func (g *Game) PlayCard(playerIdx int, c Card) error {
 		return err
 	}
 
+	// Determine the source before removing (for 2-player combined-trick tracking).
+	source := 0
+	if g.Variant == TwoPlayer && findCard(g.Players[playerIdx].Hand, c) < 0 {
+		source = 1 // not in hand → tableau
+	}
+
 	// Remove from hand or tableau.
 	if err := g.removeFromPlayerCards(playerIdx, c); err != nil {
 		return err
@@ -284,25 +271,72 @@ func (g *Game) PlayCard(playerIdx int, c Card) error {
 
 	g.Current.Cards = append(g.Current.Cards, c)
 
-	if len(g.Current.Cards) == g.numPlayers() {
-		g.completeTrick()
+	if g.Variant == TwoPlayer {
+		n := len(g.Current.Cards)
+		switch n {
+		case 1:
+			// Leader just played their first card of the combined trick.
+			// Record the source they chose and pass to the follower.
+			g.TwoPlayerFirstSource = source
+			g.TwoPlayerHandType = source
+			g.ToAct = 1 - playerIdx
+		case 2:
+			// Follower has responded to the first sub-play.
+			// Determine first-sub-play winner; they lead the second sub-play.
+			w1Off := twoCardWinner(g.Current.Cards[0], g.Current.Cards[1], g.Trump)
+			g.TwoPlayerSecondLeader = (g.Current.Leader + w1Off) % 2
+			g.TwoPlayerHandType = 1 - g.TwoPlayerFirstSource // switch source for display
+			g.ToAct = g.TwoPlayerSecondLeader
+		case 3:
+			// Second-sub-play leader has played; follower responds.
+			g.ToAct = 1 - playerIdx
+		case 4:
+			// Both sub-plays complete: combined trick is done.
+			g.completeCombinedTrick()
+		}
 	} else {
-		g.ToAct = (playerIdx + 1) % g.numPlayers()
+		if len(g.Current.Cards) == g.numPlayers() {
+			g.completeTrick()
+		} else {
+			g.ToAct = (playerIdx + 1) % g.numPlayers()
+		}
 	}
 	return nil
 }
 
 func (g *Game) validatePlay(playerIdx int, c Card) error {
-	// Collect all cards the player can play (hand + visible tableau cards).
+	// Collect all cards the player can play given the current trick step.
 	available := g.AvailableCards(playerIdx)
 	if findCard(available, c) < 0 {
 		return errors.New("card not available to play: " + c.String())
 	}
 
-	// If not leading, must follow suit if possible.
+	if g.Variant == TwoPlayer {
+		n := len(g.Current.Cards)
+		// Follower must follow suit: step 1 (responding to Cards[0]) and
+		// step 3 (responding to Cards[2]).
+		if n == 1 || n == 3 {
+			ledCard := g.Current.Cards[n-1] // Cards[0] or Cards[2]
+			ledSuit := ledCard.EffectiveSuit(g.Trump)
+			hasSuit := false
+			for _, a := range available {
+				if a.EffectiveSuit(g.Trump) == ledSuit {
+					hasSuit = true
+					break
+				}
+			}
+			if hasSuit && c.EffectiveSuit(g.Trump) != ledSuit {
+				return errors.New("must follow suit")
+			}
+		}
+		// Steps 0 and 2 are the leaders of their respective sub-plays;
+		// they may play any available card from the appropriate source.
+		return nil
+	}
+
+	// 4-player: must follow suit if possible.
 	if len(g.Current.Cards) > 0 {
 		ledSuit := g.Current.Cards[0].EffectiveSuit(g.Trump)
-		// Check if player has any card of the led suit.
 		hasSuit := false
 		for _, a := range available {
 			if a.EffectiveSuit(g.Trump) == ledSuit {
@@ -317,34 +351,62 @@ func (g *Game) validatePlay(playerIdx int, c Card) error {
 	return nil
 }
 
-// AvailableCards returns all cards a player may legally play.
-// In the 2-player variant, only cards from the active hand type are available:
-//   - TwoPlayerHandType == 0 → private hand only
-//   - TwoPlayerHandType == 1 → visible tableau cards only
+// AvailableCards returns all cards a player may legally play at this step.
 //
-// Tableau layout (2-player): Tableau[i] = face-down of column i,
-// Tableau[5+i] = face-up of column i, for i in 0..4.
-// An empty slot is represented by Card{} (zero value).
+// In the 2-player variant each combined trick has four plays:
+//
+//	Step 0 (n=0): leader plays their first card — both hand and face-up tableau cards
+//	              are available; the choice of source is implicit in which card is played.
+//	Step 1 (n=1): follower responds to the first sub-play — same source as step 0.
+//	Step 2 (n=2): winner of first sub-play leads the second source — other source only.
+//	Step 3 (n=3): follower responds to the second sub-play — same other source.
+//
+// Tableau layout (2-player): Tableau[i] = face-down of column i (i=0..4),
+// Tableau[5+i] = face-up of column i.  Card{} is the empty-slot sentinel.
 func (g *Game) AvailableCards(playerIdx int) []Card {
 	p := &g.Players[playerIdx]
 	if g.Variant == TwoPlayer {
-		if g.TwoPlayerHandType == 0 {
-			// Sub-game 1 type: private hand only.
+		n := len(g.Current.Cards)
+		switch n {
+		case 0:
+			// Leader: both hand and face-up tableau cards are available.
 			cards := make([]Card, len(p.Hand))
 			copy(cards, p.Hand)
-			return cards
-		}
-		// Sub-game 2 type: visible tableau cards only.
-		var cards []Card
-		for i := 0; i < 5; i++ {
-			if p.Tableau[5+i] != (Card{}) {
-				cards = append(cards, p.Tableau[5+i])
+			for i := 0; i < 5; i++ {
+				if p.Tableau[5+i] != (Card{}) {
+					cards = append(cards, p.Tableau[5+i])
+				}
 			}
+			return cards
+		case 1:
+			// Follower in first sub-play: same source as the leader's card.
+			return g.cardsFromSource(playerIdx, g.TwoPlayerFirstSource)
+		case 2, 3:
+			// Second sub-play (leader at step 2, follower at step 3): other source.
+			return g.cardsFromSource(playerIdx, 1-g.TwoPlayerFirstSource)
 		}
-		return cards
+		return nil
 	}
 	cards := make([]Card, len(p.Hand))
 	copy(cards, p.Hand)
+	return cards
+}
+
+// cardsFromSource returns a player's available cards from a specific source.
+// source 0 = private hand, source 1 = face-up tableau cards only.
+func (g *Game) cardsFromSource(playerIdx, source int) []Card {
+	p := &g.Players[playerIdx]
+	if source == 0 {
+		cards := make([]Card, len(p.Hand))
+		copy(cards, p.Hand)
+		return cards
+	}
+	var cards []Card
+	for i := 0; i < 5; i++ {
+		if p.Tableau[5+i] != (Card{}) {
+			cards = append(cards, p.Tableau[5+i])
+		}
+	}
 	return cards
 }
 
@@ -370,27 +432,72 @@ func (g *Game) removeFromPlayerCards(playerIdx int, c Card) error {
 	return errors.New("card not found on player")
 }
 
-func (g *Game) completeTrick() {
-	winOffset := g.Current.winner(g.Trump)
-	winner := (g.Current.Leader + winOffset) % g.numPlayers()
-	g.Players[winner].Tricks++
-	g.Tricks = append(g.Tricks, g.Current)
+// twoCardWinner evaluates a 2-card sub-play and returns the winning offset:
+// 0 if the first card (led by the sub-play leader) wins, 1 if the second wins.
+func twoCardWinner(c0, c1 Card, trump Suit) int {
+	ledSuit := c0.EffectiveSuit(trump)
+	if c1.Beats(c0, ledSuit, trump) {
+		return 1
+	}
+	return 0
+}
 
-	totalTricks := g.totalTricksForVariant()
-	if len(g.Tricks) == totalTricks {
+// completeCombinedTrick resolves a finished 2-player combined trick.
+//
+// Each combined trick consists of four cards — two sub-plays of two cards each.
+// Sub-play 1 (Cards[0:2]): first source chosen by the combined-trick leader.
+// Sub-play 2 (Cards[2:4]): other source, led by the winner of sub-play 1.
+//
+// Both sub-play winners receive a trick credit, and each sub-play is stored
+// as a separate two-card Trick entry so that the total across a full game
+// remains 20 (10 combined tricks × 2 sub-plays).
+// The winner of sub-play 2 leads the next combined trick.
+func (g *Game) completeCombinedTrick() {
+	cards := g.Current.Cards
+
+	// Sub-play 1.
+	cards1 := []Card{cards[0], cards[1]}
+	t1 := Trick{Leader: g.Current.Leader, Cards: cards1}
+	w1Off := twoCardWinner(cards[0], cards[1], g.Trump)
+	w1 := (g.Current.Leader + w1Off) % 2
+	g.Players[w1].Tricks++
+	g.Tricks = append(g.Tricks, t1)
+
+	// Sub-play 2.
+	cards2 := []Card{cards[2], cards[3]}
+	t2 := Trick{Leader: g.TwoPlayerSecondLeader, Cards: cards2}
+	w2Off := twoCardWinner(cards[2], cards[3], g.Trump)
+	w2 := (g.TwoPlayerSecondLeader + w2Off) % 2
+	g.Players[w2].Tricks++
+	g.Tricks = append(g.Tricks, t2)
+
+	// 20 sub-trick entries = 10 combined tricks = game over.
+	if len(g.Tricks) == g.totalTricksForVariant() {
 		g.Phase = PhaseScoring
 		g.computeScore()
 		g.Phase = PhaseEnd
 		return
 	}
 
-	// 2-player: after the first 10 tricks, switch to the other hand type.
-	if g.Variant == TwoPlayer && len(g.Tricks) == 10 {
-		if g.TwoPlayerHandType == 0 {
-			g.TwoPlayerHandType = 1
-		} else {
-			g.TwoPlayerHandType = 0
-		}
+	// Winner of sub-play 2 leads the next combined trick.
+	g.TwoPlayerHandType = 0
+	g.TwoPlayerFirstSource = 0
+	g.TwoPlayerSecondLeader = 0
+	g.Current = Trick{Leader: w2}
+	g.ToAct = w2
+}
+
+func (g *Game) completeTrick() {
+	winOffset := g.Current.winner(g.Trump)
+	winner := (g.Current.Leader + winOffset) % g.numPlayers()
+	g.Players[winner].Tricks++
+	g.Tricks = append(g.Tricks, g.Current)
+
+	if len(g.Tricks) == g.totalTricksForVariant() {
+		g.Phase = PhaseScoring
+		g.computeScore()
+		g.Phase = PhaseEnd
+		return
 	}
 
 	g.Current = Trick{Leader: winner}

@@ -16,7 +16,6 @@ void net_send_room_start(void);                             /* fill bots + start
 void net_send_bid(bool pass, int level, const char *suit); /* suit: "S","C","D","H","NT","Misere","OpenMisere" */
 void net_send_discard(Card cards[3]);
 void net_send_play(Card c);
-void net_send_choose_hand(int hand_type); /* 2-player: 0=private hand, 1=tableau */
 
 /* ── Receive dispatcher ───────────────────────────────────────────────────── */
 

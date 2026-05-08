@@ -80,10 +80,6 @@ func botStep(r *Room, seat int, rng *rand.Rand, broadcast func()) bool {
 		if seat == g.Contractor {
 			err = botKitty(g, seat, rng)
 		}
-	case game.PhaseChooseHand:
-		if seat == g.Contractor {
-			err = botChooseHand(g, seat, rng)
-		}
 	case game.PhasePlaying:
 		err = botPlay(g, seat, rng)
 	}
@@ -121,11 +117,6 @@ func botKitty(g *game.Game, seat int, rng *rand.Rand) error {
 	copy(hand, g.Players[seat].Hand)
 	rng.Shuffle(len(hand), func(i, j int) { hand[i], hand[j] = hand[j], hand[i] })
 	return g.Discard(seat, hand[:3])
-}
-
-// botChooseHand randomly picks a hand type (0=private hand or 1=tableau) for the 2-player variant.
-func botChooseHand(g *game.Game, seat int, rng *rand.Rand) error {
-	return g.ChooseHand(seat, rng.Intn(2))
 }
 
 // botPlay plays a random available card.

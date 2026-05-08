@@ -26,11 +26,10 @@ const (
 	TypeRoomList   = "room.list"
 
 	// Game actions (used from phase 5 onwards)
-	TypeGameBid        = "game.bid"         // payload: BidPayload
-	TypeGameDiscard    = "game.discard"     // payload: DiscardPayload
-	TypeGamePlay       = "game.play"        // payload: PlayPayload
-	TypeGameChooseHand = "game.choose_hand" // payload: ChooseHandPayload (2-player only)
-	TypeRoomStart      = "room.start"       // payload: none; fills bots + starts game
+	TypeGameBid     = "game.bid"     // payload: BidPayload
+	TypeGameDiscard = "game.discard" // payload: DiscardPayload
+	TypeGamePlay    = "game.play"    // payload: PlayPayload
+	TypeRoomStart   = "room.start"   // payload: none; fills bots + starts game
 )
 
 // ── Server → Client message types ────────────────────────────────────────────
@@ -113,7 +112,7 @@ type BidDTO struct {
 }
 
 type GameStatePayload struct {
-	Phase       string      `json:"phase"` // "bidding","kitty","choose_hand","playing","scoring","end"
+	Phase       string      `json:"phase"` // "bidding","kitty","playing","scoring","end"
 	Players     []PlayerDTO `json:"players"`
 	Kitty       []CardDTO   `json:"kitty,omitempty"` // only during kitty phase for contractor
 	Contract    *BidDTO     `json:"contract,omitempty"`
@@ -125,7 +124,10 @@ type GameStatePayload struct {
 	TrickCount  int         `json:"trick_count"`
 	Scores      [2]int      `json:"scores"`
 	Bids        []BidDTO    `json:"bids,omitempty"`
-	// 2-player only: 0 = private hand active, 1 = tableau active.
+	// 2-player only: which source is currently active within the combined trick.
+	// 0 = private hand, 1 = tableau (open hand).
+	// When len(trick)==0 (leader's first play), both sources are available
+	// regardless of this value.
 	TwoPlayerHandType int `json:"two_player_hand_type,omitempty"`
 }
 
@@ -150,13 +152,6 @@ type DiscardPayload struct {
 
 type PlayPayload struct {
 	Card CardDTO `json:"card"`
-}
-
-// ChooseHandPayload is sent by the contractor in the 2-player variant during
-// PhaseChooseHand to select which hand type to play first.
-// HandType: 0 = private hand, 1 = tableau (open hand).
-type ChooseHandPayload struct {
-	HandType int `json:"hand_type"`
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
