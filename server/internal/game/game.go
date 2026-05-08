@@ -291,7 +291,7 @@ func (g *Game) PlayCard(playerIdx int, c Card) error {
 			// Determine first-sub-play winner; they lead the second sub-play.
 			w1Off := twoCardWinner(g.Current.Cards[0], g.Current.Cards[1], g.Trump)
 			g.TwoPlayerSecondLeader = (g.Current.Leader + w1Off) % 2
-			g.TwoPlayerHandType = 1 - g.TwoPlayerFirstSource // switch source for display
+			g.TwoPlayerHandType = g.TwoPlayerFirstSource // keep same source
 			g.ToAct = g.TwoPlayerSecondLeader
 		case 3:
 			// Second-sub-play leader has played; follower responds.
@@ -364,8 +364,8 @@ func (g *Game) validatePlay(playerIdx int, c Card) error {
 //	Step 0 (n=0): leader plays their first card — both hand and face-up tableau cards
 //	              are available; the choice of source is implicit in which card is played.
 //	Step 1 (n=1): follower responds to the first sub-play — same source as step 0.
-//	Step 2 (n=2): winner of first sub-play leads the second source — other source only.
-//	Step 3 (n=3): follower responds to the second sub-play — same other source.
+//	Step 2 (n=2): winner of first sub-play leads the second sub-play — same source as sub-play 1.
+//	Step 3 (n=3): follower responds to the second sub-play — same source.
 //
 // Tableau layout (2-player): Tableau[i] = face-down of column i (i=0..4),
 // Tableau[5+i] = face-up of column i.  Card{} is the empty-slot sentinel.
@@ -388,8 +388,8 @@ func (g *Game) AvailableCards(playerIdx int) []Card {
 			// Follower in first sub-play: same source as the leader's card.
 			return g.cardsFromSource(playerIdx, g.TwoPlayerFirstSource)
 		case 2, 3:
-			// Second sub-play (leader at step 2, follower at step 3): other source.
-			return g.cardsFromSource(playerIdx, 1-g.TwoPlayerFirstSource)
+			// Second sub-play (leader at step 2, follower at step 3): same source as sub-play 1.
+			return g.cardsFromSource(playerIdx, g.TwoPlayerFirstSource)
 		}
 		return nil
 	}
