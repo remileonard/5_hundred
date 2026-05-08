@@ -464,15 +464,16 @@ func twoCardWinner(c0, c1 Card, trump Suit) int {
 
 // completeCombinedTrick resolves a finished 2-player combined trick.
 //
-// Each combined trick consists of four cards — two sub-plays of two cards each.
-// Sub-play 1 (Cards[0:2]): source chosen by the combined-trick leader; led by that leader.
-// Sub-play 2 (Cards[2:4]): the OTHER source; also led by the same combined-trick leader.
+// A combined trick consists of four cards played as ONE trick:
+//   - Cards[0]: combined-trick leader plays from source X (hand or tableau).
+//   - Cards[1]: follower responds from source X.
+//   - Cards[2]: same leader plays from source Y (the other source).
+//   - Cards[3]: follower responds from source Y.
 //
-// Both sub-play winners receive a trick credit, and each sub-play is stored
-// as a separate two-card Trick entry so that the total across a full game
-// remains 20 (10 combined tricks × 2 sub-plays).
-// The winner of sub-play 2 leads the next combined trick, and must start from
-// the source used in sub-play 2 (= the other source from sub-play 1).
+// A single winner is determined by the standard trick evaluation across all
+// four cards. The winner earns one trick point. The source of the winning card
+// (X if Cards[0..1] won, Y if Cards[2..3] won) becomes the forced starting
+// source for the next combined trick.
 func (g *Game) completeCombinedTrick() {
 	cards := g.Current.Cards
 
@@ -482,23 +483,16 @@ func (g *Game) completeCombinedTrick() {
 	g.LastCompletedTrick = saved
 	g.LastCompletedTrickLeader = g.Current.Leader
 
-	// Sub-play 1.
-	cards1 := []Card{cards[0], cards[1]}
-	t1 := Trick{Leader: g.Current.Leader, Cards: cards1}
-	w1Off := twoCardWinner(cards[0], cards[1], g.Trump)
-	w1 := (g.Current.Leader + w1Off) % 2
-	g.Players[w1].Tricks++
-	g.Tricks = append(g.Tricks, t1)
+	// Evaluate the full 4-card trick as one unit.
+	// Cards[i] is played by (Current.Leader + i) % 2, so:
+	//   i=0,2 → combined-trick leader; i=1,3 → follower.
+	t := Trick{Leader: g.Current.Leader, Cards: []Card{cards[0], cards[1], cards[2], cards[3]}}
+	winOff := t.winner(g.Trump)
+	winner := (g.Current.Leader + winOff) % 2
+	g.Players[winner].Tricks++
+	g.Tricks = append(g.Tricks, t)
 
-	// Sub-play 2: always led by the same combined-trick leader (TwoPlayerSecondLeader == Current.Leader).
-	cards2 := []Card{cards[2], cards[3]}
-	t2 := Trick{Leader: g.TwoPlayerSecondLeader, Cards: cards2}
-	w2Off := twoCardWinner(cards[2], cards[3], g.Trump)
-	w2 := (g.TwoPlayerSecondLeader + w2Off) % 2
-	g.Players[w2].Tricks++
-	g.Tricks = append(g.Tricks, t2)
-
-	// 20 sub-trick entries = 10 combined tricks = game over.
+	// 10 combined tricks = game over.
 	if len(g.Tricks) == g.totalTricksForVariant() {
 		g.Phase = PhaseScoring
 		g.computeScore()
@@ -506,15 +500,21 @@ func (g *Game) completeCombinedTrick() {
 		return
 	}
 
-	// The source used in sub-play 2 (= the other source from sub-play 1) becomes
-	// the forced starting source for the next combined trick.
-	nextSource := 1 - g.TwoPlayerFirstSource
+	// Determine which source the winning card came from:
+	//   winOff 0 or 1 → source X (TwoPlayerFirstSource)
+	//   winOff 2 or 3 → source Y (1 - TwoPlayerFirstSource)
+	var nextSource int
+	if winOff < 2 {
+		nextSource = g.TwoPlayerFirstSource
+	} else {
+		nextSource = 1 - g.TwoPlayerFirstSource
+	}
 	g.TwoPlayerForcedSource = nextSource
 	g.TwoPlayerHandType = nextSource
 	g.TwoPlayerFirstSource = 0
 	g.TwoPlayerSecondLeader = 0
-	g.Current = Trick{Leader: w2}
-	g.ToAct = w2
+	g.Current = Trick{Leader: winner}
+	g.ToAct = winner
 }
 
 func (g *Game) completeTrick() {
@@ -542,9 +542,6 @@ func (g *Game) completeTrick() {
 }
 
 func (g *Game) totalTricksForVariant() int {
-	if g.Variant == TwoPlayer {
-		return 20 // each player has 20 cards
-	}
 	return 10
 }
 

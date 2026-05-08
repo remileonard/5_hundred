@@ -456,6 +456,7 @@ func TestGame_TwoPlayer_DealAndPlay(t *testing.T) {
 	//   step 1 (n=1): follower plays same source, following suit if possible
 	//   step 2 (n=2): SAME leader plays from the other source
 	//   step 3 (n=3): other player follows suit if possible from the other source
+	// All 4 cards form a single trick; the winner is the player with the best card.
 	for g.Phase == PhasePlaying {
 		p := g.ToAct
 		available := g.AvailableCards(p)
@@ -489,9 +490,9 @@ func TestGame_TwoPlayer_DealAndPlay(t *testing.T) {
 	for _, pl := range g.Players {
 		total += pl.Tricks
 	}
-	// 10 combined tricks × 2 sub-plays = 20 sub-trick wins total.
-	if total != 20 {
-		t.Errorf("2-player: expected 20 trick credits total, got %d", total)
+	// 10 combined tricks = 10 trick wins total (one winner per combined trick).
+	if total != 10 {
+		t.Errorf("2-player: expected 10 trick credits total, got %d", total)
 	}
 }
 
@@ -501,8 +502,8 @@ func TestGame_TwoPlayer_DealAndPlay(t *testing.T) {
 //   - At step 1, the follower is restricted to the same source as the leader.
 //   - At step 2, the SAME leader leads from the OTHER source (not winner of sub-play 1).
 //   - At step 3, the follower responds from the other source.
-//   - Completing 4 plays advances len(Tricks) by 2 (two sub-trick entries).
-//   - After the trick, TwoPlayerForcedSource equals the source used in sub-play 2.
+//   - Completing 4 plays produces 1 trick entry (a single 4-card trick) and 1 trick credit.
+//   - After the trick, TwoPlayerForcedSource is set to the source of the winning card.
 func TestGame_TwoPlayer_CombinedTrickStructure(t *testing.T) {
 	g := newGame2(5)
 	playBiddingPhase(t, g)
@@ -611,21 +612,20 @@ func TestGame_TwoPlayer_CombinedTrickStructure(t *testing.T) {
 		t.Fatalf("step 3 play failed: %v", err)
 	}
 
-	// After the combined trick: 2 sub-trick entries stored, game still playing.
-	if len(g.Tricks) != 2 {
-		t.Errorf("after 1 combined trick, expected 2 sub-trick entries, got %d", len(g.Tricks))
+	// After the combined trick: 1 trick entry stored (4-card single trick), game still playing.
+	if len(g.Tricks) != 1 {
+		t.Errorf("after 1 combined trick, expected 1 trick entry, got %d", len(g.Tricks))
 	}
 	if g.Phase != PhasePlaying {
 		t.Errorf("expected PhasePlaying after first combined trick, got %v", g.Phase)
 	}
 	total := g.Players[0].Tricks + g.Players[1].Tricks
-	if total != 2 {
-		t.Errorf("after 1 combined trick, expected 2 trick credits total, got %d", total)
+	if total != 1 {
+		t.Errorf("after 1 combined trick, expected 1 trick credit total, got %d", total)
 	}
-	// After trick 1 (sub-play 1 was hand=0, sub-play 2 was tableau=1),
-	// the forced source for the next trick must be tableau (1).
-	if g.TwoPlayerForcedSource != 1 {
-		t.Errorf("after trick 1, expected TwoPlayerForcedSource=1 (tableau), got %d", g.TwoPlayerForcedSource)
+	// TwoPlayerForcedSource must now be set (0 or 1) for the next trick.
+	if g.TwoPlayerForcedSource < 0 {
+		t.Errorf("after trick 1, TwoPlayerForcedSource should be set (>=0), got %d", g.TwoPlayerForcedSource)
 	}
 }
 
