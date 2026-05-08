@@ -144,18 +144,21 @@ func BuildGameState(g *game.Game, r *Room, forSeat int) protocol.GameStatePayloa
 	}
 
 	return protocol.GameStatePayload{
-		Phase:       phaseStr(g.Phase),
-		Players:     players,
-		Kitty:       kitty,
-		Contract:    contractDTO,
-		Contractor:  g.Contractor,
-		Trump:       suitStr(g.Trump),
-		ToAct:       g.ToAct,
-		Trick:       trick,
-		TrickLeader: g.Current.Leader,
-		TrickCount:  len(g.Tricks),
-		Scores:      g.Scores,
-		Bids:        bids,
+		Phase:             phaseStr(g.Phase),
+		Players:           players,
+		Kitty:             kitty,
+		Contract:          contractDTO,
+		Contractor:        g.Contractor,
+		Trump:             suitStr(g.Trump),
+		ToAct:             g.ToAct,
+		Trick:             trick,
+		TrickLeader:       g.Current.Leader,
+		TrickCount:        len(g.Tricks),
+		Scores:            g.Scores,
+		Bids:              bids,
+		TwoPlayerHandType: g.TwoPlayerHandType,
+		LastTrick:         cardsToDTO(g.LastCompletedTrick),
+		LastTrickLeader:   g.LastCompletedTrickLeader,
 	}
 }
 

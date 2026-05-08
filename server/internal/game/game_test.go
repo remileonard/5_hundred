@@ -373,7 +373,7 @@ func playFullGame4(t *testing.T, seed int64) *Game {
 
 	for g.Phase == PhasePlaying {
 		p := g.ToAct
-		available := g.availableCards(p)
+		available := g.AvailableCards(p)
 		var cardToPlay Card
 		// Play any legal card: first try following suit, else first available.
 		if len(g.Current.Cards) > 0 {
@@ -432,7 +432,7 @@ func TestGame_TwoPlayer_DealAndPlay(t *testing.T) {
 		}
 	}
 
-	// Bid and play through.
+	// Bid and reach kitty phase.
 	if err := g.PlaceBid(0, Bid{Level: 6, Suit: BidSpades}); err != nil {
 		t.Fatal(err)
 	}
@@ -446,11 +446,28 @@ func TestGame_TwoPlayer_DealAndPlay(t *testing.T) {
 	g.PickUpKitty(g.Contractor)
 	g.Discard(g.Contractor, g.Players[g.Contractor].Hand[:3])
 
+	// 2-player goes directly to PhasePlaying (no PhaseChooseHand step).
+	if g.Phase != PhasePlaying {
+		t.Fatalf("expected PhasePlaying after discard, got %v", g.Phase)
+	}
+
+	// Play through the full game.  Each combined trick has 4 plays:
+	//   step 0 (n=0): leader plays from forced source (or any source on the first trick)
+	//   step 1 (n=1): follower plays same source, following suit if possible
+	//   step 2 (n=2): SAME leader plays from the other source
+	//   step 3 (n=3): other player follows suit if possible from the other source
+	// All 4 cards form a single trick; the winner is the player with the best card.
 	for g.Phase == PhasePlaying {
 		p := g.ToAct
-		available := g.availableCards(p)
+		available := g.AvailableCards(p)
+		if len(available) == 0 {
+			t.Fatalf("no available cards for player %d (step=%d)", p, len(g.Current.Cards))
+		}
+		n := len(g.Current.Cards)
 		var cardToPlay Card
-		if len(g.Current.Cards) > 0 {
+		// At follower steps (1 and 3), follow the suit of Cards[0] — the card
+		// led at step 0 governs all follow-suit obligations for the whole trick.
+		if n == 1 || n == 3 {
 			ledSuit := g.Current.Cards[0].EffectiveSuit(g.Trump)
 			for _, c := range available {
 				if c.EffectiveSuit(g.Trump) == ledSuit {
@@ -463,7 +480,7 @@ func TestGame_TwoPlayer_DealAndPlay(t *testing.T) {
 			cardToPlay = available[0]
 		}
 		if err := g.PlayCard(p, cardToPlay); err != nil {
-			t.Fatalf("PlayCard(p%d, %v): %v", p, cardToPlay, err)
+			t.Fatalf("PlayCard(p%d, %v) at step %d: %v", p, cardToPlay, n, err)
 		}
 	}
 
@@ -474,8 +491,190 @@ func TestGame_TwoPlayer_DealAndPlay(t *testing.T) {
 	for _, pl := range g.Players {
 		total += pl.Tricks
 	}
-	if total != 20 {
-		t.Errorf("2-player: expected 20 tricks total, got %d", total)
+	// 10 combined tricks = 10 trick wins total (one winner per combined trick).
+	if total != 10 {
+		t.Errorf("2-player: expected 10 trick credits total, got %d", total)
+	}
+}
+
+// TestGame_TwoPlayer_CombinedTrickStructure verifies that:
+//   - After Discard, the game is immediately in PhasePlaying (no PhaseChooseHand).
+//   - The leader at step 0 can play from either hand or tableau (first trick: free choice).
+//   - At step 1, the follower is restricted to the same source as the leader.
+//   - At step 2, the SAME leader leads from the OTHER source (not winner of sub-play 1).
+//   - At step 3, the follower responds from the other source.
+//   - Completing 4 plays produces 1 trick entry (a single 4-card trick) and 1 trick credit.
+//   - After the trick, TwoPlayerForcedSource is set to the source of the winning card.
+func TestGame_TwoPlayer_CombinedTrickStructure(t *testing.T) {
+	g := newGame2(5)
+	playBiddingPhase(t, g)
+	g.PickUpKitty(g.Contractor)
+	g.Discard(g.Contractor, g.Players[g.Contractor].Hand[:3])
+
+	if g.Phase != PhasePlaying {
+		t.Fatalf("expected PhasePlaying after discard in 2-player, got %v", g.Phase)
+	}
+
+	// Step 0: contractor (leader) should be able to play from hand OR tableau.
+	leader := g.Contractor
+	avail0 := g.AvailableCards(leader)
+	hasHand := len(g.Players[leader].Hand) > 0
+	hasTab := false
+	for i := 0; i < 5; i++ {
+		if g.Players[leader].Tableau[5+i] != (Card{}) {
+			hasTab = true
+		}
+	}
+	if hasHand && hasTab && len(avail0) <= 5 {
+		t.Errorf("step 0: expected cards from both sources, got %d", len(avail0))
+	}
+
+	// Play step 0: leader plays a hand card.
+	handCard := g.Players[leader].Hand[0]
+	if err := g.PlayCard(leader, handCard); err != nil {
+		t.Fatalf("step 0 play failed: %v", err)
+	}
+	if g.TwoPlayerFirstSource != 0 {
+		t.Errorf("expected TwoPlayerFirstSource=0 (hand), got %d", g.TwoPlayerFirstSource)
+	}
+
+	// Step 1: follower must have only hand cards available.
+	follower := 1 - leader
+	avail1 := g.AvailableCards(follower)
+	for _, c := range avail1 {
+		found := findCard(g.Players[follower].Hand, c) >= 0
+		if !found {
+			t.Errorf("step 1: non-hand card %v in available cards", c)
+		}
+	}
+	if len(avail1) == 0 {
+		t.Fatalf("step 1: no available cards for follower")
+	}
+	if err := g.PlayCard(follower, avail1[0]); err != nil {
+		t.Fatalf("step 1 play failed: %v", err)
+	}
+	if g.TwoPlayerHandType != 1 {
+		t.Errorf("after sub-play 1, expected TwoPlayerHandType=1 (tableau, other source), got %d", g.TwoPlayerHandType)
+	}
+
+	// Step 2: the SAME leader (not sub-play 1's winner) leads from the other source (tableau).
+	leader2 := g.TwoPlayerSecondLeader
+	if leader2 != leader {
+		t.Errorf("step 2: expected same leader %d, got %d", leader, leader2)
+	}
+	avail2 := g.AvailableCards(leader2)
+	for _, c := range avail2 {
+		found := false
+		for i := 0; i < 5; i++ {
+			if g.Players[leader2].Tableau[5+i] == c {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("step 2: non-tableau card %v in available cards", c)
+		}
+	}
+	if len(avail2) == 0 {
+		t.Fatalf("step 2: no available cards for second-sub-play leader %d", leader2)
+	}
+	if err := g.PlayCard(leader2, avail2[0]); err != nil {
+		t.Fatalf("step 2 play failed: %v", err)
+	}
+
+	// Step 3: follower responds from the other source (tableau, since sub-play 1 was hand).
+	follower2 := 1 - leader2
+	avail3 := g.AvailableCards(follower2)
+	for _, c := range avail3 {
+		found := false
+		for i := 0; i < 5; i++ {
+			if g.Players[follower2].Tableau[5+i] == c {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("step 3: non-tableau card %v in available cards", c)
+		}
+	}
+	if len(avail3) == 0 {
+		t.Fatalf("step 3: no available cards for follower %d", follower2)
+	}
+	// At step 3 the follower must follow suit of Cards[2] if possible.
+	cardToPlay3 := avail3[0]
+	ledSuit3 := g.Current.Cards[2].EffectiveSuit(g.Trump)
+	for _, c := range avail3 {
+		if c.EffectiveSuit(g.Trump) == ledSuit3 {
+			cardToPlay3 = c
+			break
+		}
+	}
+	if err := g.PlayCard(follower2, cardToPlay3); err != nil {
+		t.Fatalf("step 3 play failed: %v", err)
+	}
+
+	// After the combined trick: 1 trick entry stored (4-card single trick), game still playing.
+	if len(g.Tricks) != 1 {
+		t.Errorf("after 1 combined trick, expected 1 trick entry, got %d", len(g.Tricks))
+	}
+	if g.Phase != PhasePlaying {
+		t.Errorf("expected PhasePlaying after first combined trick, got %v", g.Phase)
+	}
+	total := g.Players[0].Tricks + g.Players[1].Tricks
+	if total != 1 {
+		t.Errorf("after 1 combined trick, expected 1 trick credit total, got %d", total)
+	}
+	// TwoPlayerForcedSource must now be set (0 or 1) for the next trick.
+	if g.TwoPlayerForcedSource < 0 {
+		t.Errorf("after trick 1, TwoPlayerForcedSource should be set (>=0), got %d", g.TwoPlayerForcedSource)
+	}
+}
+
+// TestGame_TwoPlayer_LeaderChoosesTableauFirst verifies that the leader can also
+// choose to play from the tableau first, and the follower is then restricted to
+// tableau cards at step 1.
+func TestGame_TwoPlayer_LeaderChoosesTableauFirst(t *testing.T) {
+	g := newGame2(7)
+	playBiddingPhase(t, g)
+	g.PickUpKitty(g.Contractor)
+	g.Discard(g.Contractor, g.Players[g.Contractor].Hand[:3])
+
+	leader := g.Contractor
+
+	// Find a face-up tableau card to play first.
+	var tabCard Card
+	for i := 0; i < 5; i++ {
+		if g.Players[leader].Tableau[5+i] != (Card{}) {
+			tabCard = g.Players[leader].Tableau[5+i]
+			break
+		}
+	}
+	if tabCard == (Card{}) {
+		t.Skip("no face-up tableau card available for leader")
+	}
+
+	// Play tableau card as first card.
+	if err := g.PlayCard(leader, tabCard); err != nil {
+		t.Fatalf("step 0 (tableau first) failed: %v", err)
+	}
+	if g.TwoPlayerFirstSource != 1 {
+		t.Errorf("expected TwoPlayerFirstSource=1 (tableau), got %d", g.TwoPlayerFirstSource)
+	}
+
+	// Step 1: follower must have only tableau cards.
+	follower := 1 - leader
+	avail1 := g.AvailableCards(follower)
+	for _, c := range avail1 {
+		found := false
+		for i := 0; i < 5; i++ {
+			if g.Players[follower].Tableau[5+i] == c {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("step 1 (tableau first): non-tableau card %v in available", c)
+		}
 	}
 }
 

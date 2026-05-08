@@ -106,6 +106,8 @@ void net_send_discard(Card cards[3])
 
 void net_send_play(Card c)
 {
+    fprintf(stderr, "[CLIENT-PLAY] sending card rank=%d suit=%d (%s%s)\n",
+            c.rank, c.suit, card_rank_str(c.rank), card_suit_str(c.suit));
     cJSON *root    = make_msg("game.play");
     cJSON *payload = cJSON_CreateObject();
     cJSON *card    = cJSON_CreateObject();
@@ -162,11 +164,11 @@ static int suit_from_str(const char *s)
 static GamePhase phase_from_str(const char *s)
 {
     if (!s) return PHASE_BIDDING;
-    if (strcmp(s, "bidding") == 0) return PHASE_BIDDING;
-    if (strcmp(s, "kitty")   == 0) return PHASE_KITTY;
-    if (strcmp(s, "playing") == 0) return PHASE_PLAYING;
-    if (strcmp(s, "scoring") == 0) return PHASE_SCORING;
-    if (strcmp(s, "end")     == 0) return PHASE_END;
+    if (strcmp(s, "bidding")     == 0) return PHASE_BIDDING;
+    if (strcmp(s, "kitty")       == 0) return PHASE_KITTY;
+    if (strcmp(s, "playing")     == 0) return PHASE_PLAYING;
+    if (strcmp(s, "scoring")     == 0) return PHASE_SCORING;
+    if (strcmp(s, "end")         == 0) return PHASE_END;
     return PHASE_BIDDING;
 }
 
@@ -360,6 +362,22 @@ static void handle_game_state(App *app, cJSON *payload)
         }
     }
 
+    /* Last completed trick — shown between turns when trick_count == 0 */
+    cJSON *last_trick        = cJSON_GetObjectItemCaseSensitive(payload, "last_trick");
+    cJSON *last_trick_leader = cJSON_GetObjectItemCaseSensitive(payload, "last_trick_leader");
+    if (cJSON_IsNumber(last_trick_leader))
+        gs->last_trick_leader = last_trick_leader->valueint;
+    if (cJSON_IsArray(last_trick)) {
+        gs->last_trick_count = 0;
+        cJSON *c;
+        cJSON_ArrayForEach(c, last_trick) {
+            if (gs->last_trick_count >= MAX_TRICK) break;
+            gs->last_trick[gs->last_trick_count++] = card_from_dto(c);
+        }
+    } else {
+        gs->last_trick_count = 0;
+    }
+
     /* Bid history */
     cJSON *bids = cJSON_GetObjectItemCaseSensitive(payload, "bids");
     if (cJSON_IsArray(bids)) {
@@ -384,10 +402,74 @@ static void handle_game_state(App *app, cJSON *payload)
         gs->kitty_count = 0;
     }
 
+    /* 2-player hand type (0=hand, 1=tableau) */
+    cJSON *ht = cJSON_GetObjectItemCaseSensitive(payload, "two_player_hand_type");
+    if (cJSON_IsNumber(ht))
+        gs->two_player_hand_type = ht->valueint;
+
+    /* Completed tricks count — used to detect free-choice first trick vs forced source */
+    cJSON *tc = cJSON_GetObjectItemCaseSensitive(payload, "trick_count");
+    if (cJSON_IsNumber(tc))
+        gs->tricks_completed = tc->valueint;
+
     /* Preserve card selection when it's still our turn in playing phase
      * (e.g. a bot played in another seat but it's back to us). */
     if (gs->phase != PHASE_PLAYING || gs->to_act != gs->local_seat)
         gs->selected_card = -1;
+
+    /* ── Diagnostic log ───────────────────────────────────────────────── */
+    if (gs->phase == PHASE_PLAYING) {
+        /* Build trick-cards string */
+        char trick_buf[128] = "";
+        for (int i = 0; i < gs->trick_count; i++) {
+            char tmp[16];
+            snprintf(tmp, sizeof(tmp), "%s%s ",
+                     card_rank_str(gs->trick[i].rank),
+                     card_suit_str(gs->trick[i].suit));
+            strncat(trick_buf, tmp, sizeof(trick_buf) - strlen(trick_buf) - 1);
+        }
+        /* Build hand string */
+        char hand_buf[256] = "";
+        PlayerSlot *lp = &gs->players[gs->local_seat];
+        for (int i = 0; i < lp->hand_count; i++) {
+            char tmp[16];
+            snprintf(tmp, sizeof(tmp), "%s%s ",
+                     card_rank_str(lp->hand[i].rank),
+                     card_suit_str(lp->hand[i].suit));
+            strncat(hand_buf, tmp, sizeof(hand_buf) - strlen(hand_buf) - 1);
+        }
+        /* Build tableau string (face-up only) */
+        char tab_buf[128] = "";
+        for (int i = 0; i < 5 && lp->tableau_count == 10; i++) {
+            Card fu = lp->tableau[5 + i];
+            if (fu.rank == RANK_JOKER && fu.suit == SUIT_SPADES) continue;
+            char tmp[16];
+            snprintf(tmp, sizeof(tmp), "%s%s ",
+                     card_rank_str(fu.rank), card_suit_str(fu.suit));
+            strncat(tab_buf, tmp, sizeof(tab_buf) - strlen(tab_buf) - 1);
+        }
+        fprintf(stderr,
+                "[STATE] phase=playing to_act=%d local=%d tricks=%d/%d "
+                "handType=%d step=%d trick=[%s] hand=[%s] tab=[%s]\n",
+                gs->to_act, gs->local_seat,
+                gs->tricks_completed, 10,
+                gs->two_player_hand_type, gs->trick_count,
+                trick_buf, hand_buf, tab_buf);
+        /* Log last completed trick if available and trick just reset */
+        if (gs->trick_count == 0 && gs->last_trick_count > 0) {
+            char lt_buf[128] = "";
+            for (int i = 0; i < gs->last_trick_count; i++) {
+                char tmp[16];
+                snprintf(tmp, sizeof(tmp), "%s%s ",
+                         card_rank_str(gs->last_trick[i].rank),
+                         card_suit_str(gs->last_trick[i].suit));
+                strncat(lt_buf, tmp, sizeof(lt_buf) - strlen(lt_buf) - 1);
+            }
+            fprintf(stderr,
+                    "[LAST-TRICK] leader=%d cards=[%s] next_leader=%d\n",
+                    gs->last_trick_leader, lt_buf, gs->trick_leader);
+        }
+    }
 }
 
 static void handle_error(App *app, cJSON *payload)

@@ -55,6 +55,12 @@ typedef struct {
     Card trick[MAX_TRICK];
     int  trick_count;        /* cards in the current (in-progress) trick */
     int  trick_leader;       /* seat index of trick leader */
+    int  tricks_completed;   /* number of completed tricks so far (TrickCount from server) */
+
+    /* Most recently completed trick — shown between turns when trick_count == 0. */
+    Card last_trick[MAX_TRICK];
+    int  last_trick_count;
+    int  last_trick_leader;
 
     Card kitty[3];           /* kitty cards, visible to contractor during PHASE_KITTY */
     int  kitty_count;        /* 0 or 3 */
@@ -62,6 +68,11 @@ typedef struct {
     int  scores[2];          /* Team 0, Team 1 */
     int  selected_card;      /* index in local hand, -1 = none */
     int  trump_suit;         /* Suit value, SUIT_NONE = no-trumps */
+
+    /* 2-player variant: which source is currently active within the combined trick.
+     * 0 = private hand, 1 = tableau.
+     * When trick_count == 0 (leader's first play), both sources are available. */
+    int  two_player_hand_type;
 
     /* UI feedback */
     char     error_msg[128];   /* last server error, empty = none */

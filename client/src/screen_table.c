@@ -169,14 +169,57 @@ static void draw_score(App *app)
 static void draw_trick(App *app)
 {
     ClientGameState *gs = &app->gs;
-    if (gs->trick_count == 0 || gs->num_players == 0) return;
+    if (gs->num_players == 0) return;
+
+    /* Prefer the in-progress trick; fall back to the last completed trick so
+     * all four cards remain visible between turns. */
+    const Card *cards;
+    int         count;
+    int         leader;
+    if (gs->trick_count > 0) {
+        cards  = gs->trick;
+        count  = gs->trick_count;
+        leader = gs->trick_leader;
+    } else if (gs->last_trick_count > 0) {
+        cards  = gs->last_trick;
+        count  = gs->last_trick_count;
+        leader = gs->last_trick_leader;
+    } else {
+        return;
+    }
+
     static const int off_x[4] = { 0,  0,  1, -1 };
     static const int off_y[4] = { 1, -1,  0,  0 };
-    for (int i = 0; i < gs->trick_count; i++) {
-        int seat = (gs->trick_leader + i) % gs->num_players;
-        int tx = TRICK_CX + off_x[seat] * TRICK_SPREAD - CARD_W / 2;
-        int ty = TRICK_CY + off_y[seat] * (TRICK_SPREAD * 2 / 3) - CARD_H / 2;
-        card_draw(app->renderer, app->font_md, app->font_sm, gs->trick[i], tx, ty);
+    for (int i = 0; i < count; i++) {
+        int virt_seat;
+        if (gs->num_players == 2) {
+            /* In 2-player, a combined trick has up to 4 plays (2 sub-plays).
+             * Map each play index to a virtual 4-player position so cards
+             * spread across all four directions and never overlap:
+             *   play 0 (sub1 leader)   → bottom (virtual seat 0)
+             *   play 1 (sub1 follower) → top    (virtual seat 1)
+             *   play 2 (sub2 leader)   → right  (virtual seat 2)
+             *   play 3 (sub2 follower) → left   (virtual seat 3)
+             * For the local player's seat adjust the mapping so their card
+             * lands at the bottom (virtual seat 0 = local). */
+            int local = gs->local_seat;
+            int first_play_is_local = (leader == local) ? 1 : 0;
+            if (first_play_is_local) {
+                /* leader is local: plays 0,2 are local (bottom/right), 1,3 are opponent (top/left) */
+                static const int virt_local_first[4] = {0, 1, 2, 3};
+                virt_seat = virt_local_first[i];
+            } else {
+                /* leader is opponent: plays 0,2 are opponent, 1,3 are local
+                 * swap so local always lands at bottom */
+                static const int virt_opp_first[4] = {1, 0, 3, 2};
+                virt_seat = virt_opp_first[i];
+            }
+        } else {
+            virt_seat = (leader + i) % gs->num_players;
+        }
+        int tx = TRICK_CX + off_x[virt_seat] * TRICK_SPREAD - CARD_W / 2;
+        int ty = TRICK_CY + off_y[virt_seat] * (TRICK_SPREAD * 2 / 3) - CARD_H / 2;
+        card_draw(app->renderer, app->font_md, app->font_sm, cards[i], tx, ty);
     }
 }
 
@@ -195,31 +238,48 @@ static int card_eff_suit(Card c, int trump)
 
 /* Determine if a card in the local hand is legally playable right now.
  * Mirrors the server follow-suit rule on the client for visual feedback.
- * In 2-player mode the visible tableau cards also count when checking
- * whether the player can follow suit. */
+ *
+ * 2-player combined-trick steps (trick_count = cards played in current trick):
+ *   step 0 (trick_count==0): leader plays from forced source → free within that source.
+ *     Exception: first trick ever (tricks_completed==0) → both sources free.
+ *   step 1 (trick_count==1): follower, same source as step 0; must follow suit of trick[0].
+ *   step 2 (trick_count==2): SAME leader leads the other source → free play (no follow-suit).
+ *   step 3 (trick_count==3): follower of step 2; must follow suit of trick[2]. */
 static bool is_playable(ClientGameState *gs, int card_idx)
 {
     if (gs->phase != PHASE_PLAYING) return true;
     if (gs->to_act != gs->local_seat) return false;
-    if (gs->trick_count == 0) return true;  /* leading — any card is fine */
 
     PlayerSlot *p = &gs->players[gs->local_seat];
+
+    /* The Joker is always playable regardless of follow-suit obligations. */
+    if ((int)p->hand[card_idx].rank == RANK_JOKER) return true;
+
+    /* In 2-player, when tableau is forced and it's not a free-choice trick, hand is off. */
+    bool free_choice = (gs->trick_count == 0 && gs->tricks_completed == 0);
+    if (gs->num_players == 2 && gs->two_player_hand_type == 1 && !free_choice) return false;
+    if (gs->trick_count == 0) return true;  /* leading at step 0 — any hand card */
+
+    /* Step 2 in 2-player: same combined-trick leader leads the other (hand) source.
+     * Detected by trick_count==2 and to_act==trick_leader (same leader as step 0).
+     * No follow-suit constraint: the player is leading, not following. */
+    if (gs->num_players == 2 && gs->trick_count == 2
+            && gs->to_act == gs->trick_leader)
+        return true;
+
     int n = p->hand_count;
     int trump = gs->trump_suit;
-    int led_eff = card_eff_suit(gs->trick[0], trump);
+    /* Follow-suit rule: always reference trick[0] (the card led at step 0).
+     * The combined trick is one unit — no sub-tricks — so the suit led at the
+     * start governs all follow-suit obligations (steps 1 and 3). */
+    int led_idx = 0;
+    int led_eff = card_eff_suit(gs->trick[led_idx], trump);
 
-    /* Check if player has any card of the led effective suit (hand) */
+    /* Check if player has any non-Joker card of the led effective suit (hand only now) */
     bool has_led_suit = false;
     for (int i = 0; i < n; i++) {
+        if ((int)p->hand[i].rank == RANK_JOKER) continue; /* Joker never satisfies suit */
         if (card_eff_suit(p->hand[i], trump) == led_eff) { has_led_suit = true; break; }
-    }
-    /* In 2-player, also check visible tableau cards */
-    if (!has_led_suit && gs->num_players == 2) {
-        for (int col = 0; col < 5; col++) {
-            Card fc = p->tableau[5 + col];
-            if (CARD_IS_EMPTY(fc)) continue;
-            if (card_eff_suit(fc, trump) == led_eff) { has_led_suit = true; break; }
-        }
     }
     if (!has_led_suit) return true;  /* no matching suit — can play anything */
 
@@ -354,6 +414,108 @@ static int local_tableau_hit(ClientGameState *gs, int mx, int my)
     return -1;
 }
 
+/* Draw an amber glow/border around the active source (hand or tableau row)
+ * when it's the local player's turn in 2-player mode.
+ * Call this BEFORE drawing the hand/tableau so the glow appears behind the cards. */
+static void draw_source_highlight_2p(App *app)
+{
+    ClientGameState *gs = &app->gs;
+    if (gs->num_players != 2) return;
+    if (gs->phase != PHASE_PLAYING) return;
+    if (gs->to_act != gs->local_seat) return;
+
+    bool free_choice    = (gs->trick_count == 0 && gs->tricks_completed == 0);
+    bool hand_active    = (free_choice || gs->two_player_hand_type == 0);
+    bool tableau_active = (free_choice || gs->two_player_hand_type == 1);
+
+    PlayerSlot *p = &gs->players[gs->local_seat];
+    SDL_Renderer *r = app->renderer;
+
+    /* Semi-transparent amber fill behind the active area */
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(r, 255, 200, 30, 55);
+
+    if (hand_active && p->hand_count > 0) {
+        int total_w = CARD_W + (p->hand_count - 1) * HAND_OVERLAP;
+        int sx = WINDOW_W / 2 - total_w / 2;
+        SDL_Rect hr = {sx - 6, HAND_Y - 6, total_w + 12, CARD_H + 12};
+        SDL_RenderFillRect(r, &hr);
+    }
+    if (tableau_active && p->tableau_count > 0) {
+        int tw = 5 * TABLEAU_COL_W - 10;
+        int sx = WINDOW_W / 2 - tw / 2;
+        SDL_Rect tr = {sx - 6, TABLEAU_LOCAL_Y - 6, tw + CARD_W + 12, CARD_H + 12};
+        SDL_RenderFillRect(r, &tr);
+    }
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+
+    /* Amber outline border */
+    SDL_SetRenderDrawColor(r, 255, 200, 30, 255);
+    if (hand_active && p->hand_count > 0) {
+        int total_w = CARD_W + (p->hand_count - 1) * HAND_OVERLAP;
+        int sx = WINDOW_W / 2 - total_w / 2;
+        SDL_Rect hr = {sx - 6, HAND_Y - 6, total_w + 12, CARD_H + 12};
+        SDL_RenderDrawRect(r, &hr);
+    }
+    if (tableau_active && p->tableau_count > 0) {
+        int tw = 5 * TABLEAU_COL_W - 10;
+        int sx = WINDOW_W / 2 - tw / 2;
+        SDL_Rect tr = {sx - 6, TABLEAU_LOCAL_Y - 6, tw + CARD_W + 12, CARD_H + 12};
+        SDL_RenderDrawRect(r, &tr);
+    }
+}
+
+/* Draw source/step instruction and trick-winner notification for 2-player mode.
+ * Placed in the gap between the trick area and the local tableau/hand. */
+static void draw_2p_play_hint(App *app)
+{
+    ClientGameState *gs = &app->gs;
+    if (gs->num_players != 2) return;
+    if (gs->phase != PHASE_PLAYING) return;
+
+    SDL_Renderer *r = app->renderer;
+    bool my_turn = (gs->to_act == gs->local_seat);
+
+    /* ── Trick winner notification ─────────────────────────────────────────── */
+    /* When trick_count==0 and there have been completed tricks, the current
+     * trick_leader is the winner of the last combined trick (they lead next). */
+    if (gs->trick_count == 0 && gs->tricks_completed > 0) {
+        bool i_won = (gs->trick_leader == gs->local_seat);
+        char wbuf[80];
+        if (i_won)
+            snprintf(wbuf, sizeof(wbuf),
+                     "Pli %d : Vous avez remport\u00e9 !", gs->tricks_completed);
+        else
+            snprintf(wbuf, sizeof(wbuf),
+                     "Pli %d : %s a remport\u00e9",
+                     gs->tricks_completed,
+                     gs->players[gs->trick_leader].name);
+        SDL_Color wc = i_won ? (SDL_Color){100, 230, 100, 255}
+                             : (SDL_Color){220, 160, 60, 255};
+        SDL_Rect wr = {0, TABLEAU_LOCAL_Y - 48, WINDOW_W, 20};
+        ui_text_centered(r, app->font_sm, wbuf, wr, wc);
+    }
+
+    /* ── Source + step instruction ─────────────────────────────────────────── */
+    if (!my_turn) return;
+
+    bool free_choice = (gs->trick_count == 0 && gs->tricks_completed == 0);
+    const char *src_name = (gs->two_player_hand_type == 0) ? "votre main" : "votre tableau";
+    char hint[128];
+    if (free_choice) {
+        snprintf(hint, sizeof(hint),
+                 "1er pli \u2014 choisissez librement depuis votre main ou le tableau");
+    } else {
+        bool sub2    = (gs->trick_count >= 2);
+        bool is_lead = (gs->to_act == gs->trick_leader);
+        const char *sub  = sub2    ? "Sous-pli 2" : "Sous-pli 1";
+        const char *role = is_lead ? "ouvrez"      : "suivez";
+        snprintf(hint, sizeof(hint), "%s \u2014 %s depuis %s", sub, role, src_name);
+    }
+    SDL_Rect hr = {0, TABLEAU_LOCAL_Y - 26, WINDOW_W, 20};
+    ui_text_centered(r, app->font_sm, hint, hr, (SDL_Color){255, 220, 60, 255});
+}
+
 /* Info bar: turn + contract */
 static void draw_info_bar(App *app)
 {
@@ -381,6 +543,16 @@ static void draw_info_bar(App *app)
                                 : (SDL_Color){160, 170, 200, 255};
         SDL_Rect r = {0, 30, WINDOW_W, 26};
         ui_text_centered(app->renderer, app->font_sm, buf, r, col);
+    }
+    if (gs->phase == PHASE_PLAYING && gs->num_players == 2) {
+        /* Show tricks won for each player. */
+        char tw[64];
+        snprintf(tw, sizeof(tw), "Plis : %s %d  \u2013  %s %d",
+                 gs->players[0].name, gs->players[0].tricks_won,
+                 gs->players[1].name, gs->players[1].tricks_won);
+        SDL_Rect tr2 = {0, 56, WINDOW_W, 20};
+        ui_text_centered(app->renderer, app->font_sm, tw, tr2,
+                         (SDL_Color){180, 200, 230, 255});
     }
     if (gs->phase == PHASE_KITTY) {
         bool mine = (gs->contractor == gs->local_seat);
@@ -476,6 +648,7 @@ static void draw_bid_history(App *app)
     }
 }
 
+/* Choose-hand panel (2-player only, PhaseChooseHand) */
 /* Discard button */
 static void draw_discard_button(App *app)
 {
@@ -708,30 +881,51 @@ void screen_table_handle_event(App *app, SDL_Event *e)
         /* Playing: select + play */
         if (gs->phase == PHASE_PLAYING) {
             PlayerSlot *p = &gs->players[gs->local_seat];
+            /* Free choice: first trick, both sources available; otherwise forced. */
+            bool free_choice = (gs->trick_count == 0 && gs->tricks_completed == 0);
             if (gs->to_act == gs->local_seat && ui_button_hit(&btn_play, mx, my)) {
                 if (gs->selected_card >= 100) {
-                    /* Tableau card selected (2-player) */
+                    /* Tableau card selected */
                     int col = gs->selected_card - 100;
+                    fprintf(stderr, "[CLIENT-BTN-PLAY] tableau col=%d card=%s%s\n",
+                            col,
+                            card_rank_str(p->tableau[5 + col].rank),
+                            card_suit_str(p->tableau[5 + col].suit));
                     net_send_play(p->tableau[5 + col]);
                     gs->selected_card = -1;
                     return;
                 } else if (gs->selected_card >= 0
                            && is_playable(gs, gs->selected_card)) {
+                    fprintf(stderr, "[CLIENT-BTN-PLAY] hand[%d]=%s%s step=%d handType=%d\n",
+                            gs->selected_card,
+                            card_rank_str(p->hand[gs->selected_card].rank),
+                            card_suit_str(p->hand[gs->selected_card].suit),
+                            gs->trick_count, gs->two_player_hand_type);
                     net_send_play(p->hand[gs->selected_card]);
                     gs->selected_card = -1;
                     return;
                 }
             }
-            /* Hit-test tableau (2-player local) */
-            int tcol = local_tableau_hit(gs, mx, my);
-            if (tcol >= 0) {
-                gs->selected_card = (gs->selected_card == 100 + tcol) ? -1 : 100 + tcol;
-                return;
+            /* Tableau click: available when tableau is the active/forced source OR
+             * on the first trick where the leader has free source choice. */
+            if (gs->num_players == 2
+                && (gs->two_player_hand_type == 1 || free_choice)) {
+                int tcol = local_tableau_hit(gs, mx, my);
+                if (tcol >= 0) {
+                    gs->selected_card = (gs->selected_card == 100 + tcol) ? -1 : 100 + tcol;
+                    return;
+                }
             }
-            int ci = hand_card_hit(gs, mx, my);
-            if (ci >= 0) {
-                gs->selected_card = (gs->selected_card == ci) ? -1 : ci;
-                return;
+            /* Hand card click: available when hand is the active/forced source OR
+             * on the first trick (free choice), OR in 4-player (always). */
+            if (gs->num_players != 2
+                || gs->two_player_hand_type == 0
+                || free_choice) {
+                int ci = hand_card_hit(gs, mx, my);
+                if (ci >= 0) {
+                    gs->selected_card = (gs->selected_card == ci) ? -1 : ci;
+                    return;
+                }
             }
         }
     }
@@ -802,9 +996,13 @@ void screen_table_render(App *app)
         }
         break;
     case PHASE_PLAYING:
-        draw_local_hand(app);
         if (gs->num_players == 2)
+            draw_source_highlight_2p(app);
+        draw_local_hand(app);
+        if (gs->num_players == 2) {
             draw_tableau(app, gs->local_seat, TABLEAU_LOCAL_Y, true);
+            draw_2p_play_hint(app);
+        }
         {
             bool tableau_sel = (gs->selected_card >= 100);
             bool hand_sel    = (gs->selected_card >= 0 && gs->selected_card < gs->players[gs->local_seat].hand_count);
