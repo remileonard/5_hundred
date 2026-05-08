@@ -50,11 +50,12 @@
 #define BID_ROWS    5
 
 /* Bid panel dimensions (shared between centred and right-side layouts) */
-#define BID_PANEL_W       436   /* total panel width including padding */
-#define BID_PANEL_H       260   /* total panel height */
-#define BID_PANEL_PAD_X    55   /* horizontal padding between panel edge and grid */
-#define BID_PANEL_PAD_TOP  36   /* vertical space from panel top to grid top */
-#define BID_PANEL_MARGIN    6   /* gap between panel bottom and the hand row (4-player) */
+#define BID_PANEL_W           436  /* total panel width including padding */
+#define BID_PANEL_H           260  /* total panel height (4-player) */
+#define BID_PANEL_PAD_X        55  /* horizontal padding between panel edge and grid */
+#define BID_PANEL_PAD_TOP      36  /* vertical space from panel top to grid top (4-player) */
+#define BID_PANEL_2P_PAD_TOP    6  /* smaller top pad for 2-player so panel fits in tableau gap */
+#define BID_PANEL_MARGIN        6  /* gap between panel bottom and the hand row (4-player) */
 /* Total span of the three special buttons (Misère + 8-px gap + Open Misère +
  * 8-px gap + Passer = 120 + 8 + 140 + 8 + 90). Wider than the bid grid (326)
  * so it must be centred separately. */
@@ -111,22 +112,25 @@ static void init_action_buttons(App *app)
     int grid_x, grid_y;
 
     if (app->gs.num_players == 2) {
-        /* 2-player: panel centred horizontally in the window and positioned
-         * vertically in the middle of the gap between the two tableau rows
-         * so it does not obstruct either one. */
-        int panel_y = (TABLEAU_OPP_Y + CARD_H + TABLEAU_LOCAL_Y) / 2
-                      - BID_PANEL_H / 2;
+        /* 2-player: panel centred horizontally and vertically in the gap
+         * between the two tableau rows.  A smaller top padding (BID_PANEL_2P_PAD_TOP)
+         * makes the panel height (230 px) fit within the gap (246 px), leaving
+         * ~8 px of clear space above and below each tableau row. */
+        int panel_h = BID_PANEL_2P_PAD_TOP + BID_ROWS * (BID_BTN_H + BID_GAP) + BID_BTN_H;
+        int panel_y = (TABLEAU_OPP_Y + CARD_H + TABLEAU_LOCAL_Y) / 2 - panel_h / 2;
         s_bid_panel_rect = (SDL_Rect){ WINDOW_W / 2 - BID_PANEL_W / 2,
                                        panel_y,
-                                       BID_PANEL_W, BID_PANEL_H };
+                                       BID_PANEL_W, panel_h };
+        grid_x = s_bid_panel_rect.x + BID_PANEL_PAD_X;
+        grid_y = panel_y + BID_PANEL_2P_PAD_TOP;
     } else {
         /* 4-player (and default): centred at the bottom */
         s_bid_panel_rect = (SDL_Rect){ WINDOW_W/2 - BID_PANEL_W/2,
                                        ACTION_PANEL_Y - BID_PANEL_MARGIN,
                                        BID_PANEL_W, BID_PANEL_H };
+        grid_x = s_bid_panel_rect.x + BID_PANEL_PAD_X;
+        grid_y = s_bid_panel_rect.y + BID_PANEL_PAD_TOP;
     }
-    grid_x = s_bid_panel_rect.x + BID_PANEL_PAD_X;
-    grid_y = s_bid_panel_rect.y + BID_PANEL_PAD_TOP;
 
     for (int row = 0; row < BID_ROWS; row++) {
         for (int col = 0; col < BID_COLS; col++) {
